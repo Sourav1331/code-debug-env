@@ -1,4 +1,3 @@
-# Code Debug Environment
 ---
 title: Code Debug Env
 emoji: 🐛
@@ -7,6 +6,9 @@ colorTo: green
 sdk: docker
 pinned: false
 ---
+
+# Code Debug Environment
+
 An [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible RL environment where an LLM agent diagnoses and fixes buggy Python code across three difficulty levels.
 
 ---
@@ -112,10 +114,9 @@ Explanation is scored by matching key algorithmic concepts. Partial credit is gi
 
 ### Install
 ```bash
-git clone https://github.com/YOUR_USERNAME/code-debug-env
+git clone https://github.com/Souravdanyal/code-debug-env
 cd code-debug-env
 pip install -e .
-# Also clone OpenEnv for PYTHONPATH
 git clone https://github.com/meta-pytorch/OpenEnv.git
 export PYTHONPATH=$PYTHONPATH:OpenEnv:OpenEnv/src:.
 ```
@@ -170,32 +171,11 @@ python inference.py --url http://localhost:7860 --difficulty hard
 
 ## Pre-Submission Validation
 
-Run before submitting to catch any disqualifying issues:
-
 ```bash
-# Start the environment first, then:
 python validator/pre_submit_check.py --url http://localhost:7860
 
 # Or against your HF Space:
-python validator/pre_submit_check.py --url https://YOUR_SPACE.hf.space
-```
-
----
-
-## Deploy to Hugging Face Spaces
-
-```bash
-# Login
-huggingface-cli login
-
-# Create space and push
-huggingface-cli repo create code-debug-env --type space --space_sdk docker
-cd code-debug-env
-git init
-git remote add origin https://huggingface.co/spaces/YOUR_USERNAME/code-debug-env
-git add .
-git commit -m "Initial commit"
-git push origin main
+python validator/pre_submit_check.py --url https://Souravdanyal-code-debug-env.hf.space
 ```
 
 ---
