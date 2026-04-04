@@ -121,3 +121,17 @@ async def list_tasks() -> dict:
         "hard": [t["task_id"] for t in HARD_TASKS],
         "total": len(EASY_TASKS) + len(MEDIUM_TASKS) + len(HARD_TASKS),
     }
+
+@app.get("/")
+async def root():
+    return {
+        "name": "Code Debug Environment",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/health",
+            "reset": "/reset",
+            "step": "/step",
+            "state": "/state",
+            "docs": "/docs"
+        }
+    }
