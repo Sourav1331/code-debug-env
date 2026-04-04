@@ -93,9 +93,9 @@ def flatten(lists):
     return result
 """,
         "test_cases": [
-            {"input": [[1, 2], [3, 4]], "expected": [1, 2, 3, 4]},
-            {"input": [[1]], "expected": [1]},
-            {"input": [[], [5, 6]], "expected": [5, 6]},
+            {"input": [[[1, 2], [3, 4]]], "expected": [1, 2, 3, 4]},
+            {"input": [[[1]]], "expected": [1]},
+            {"input": [[[], [5, 6]]], "expected": [5, 6]},
         ],
         "test_cases_description": "Flattens nested lists correctly without slicing off first element",
     },
@@ -452,7 +452,7 @@ def find_pairs(nums, target):
 """,
         "test_cases": [
             {"input": [[2, 7, 11, 15], 9], "expected": [(2, 7)]},
-            {"input": [[1, 2, 3, 4], 5], "expected": [(1, 4), (2, 3)]},
+            {"input": [[1, 2, 3, 4], 5], "expected": [(2, 3), (1, 4)]},
             {"input": [[1, 2], 10], "expected": []},
         ],
         "test_cases_description": "Finds all pairs summing to target using complement = target - n",

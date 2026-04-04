@@ -515,9 +515,9 @@ def merge_intervals(intervals):
 """,
         "explanation_keywords": ["merged[-1][1]", "end", "start", "overlap", "last interval", "index 1 vs 0"],
         "test_cases": [
-            {"input": [[1, 3], [2, 6], [8, 10]], "expected": [[1, 6], [8, 10]]},
-            {"input": [[1, 4], [4, 5]], "expected": [[1, 5]]},
-            {"input": [[1, 2]], "expected": [[1, 2]]},
+            {"input": [[[1, 3], [2, 6], [8, 10]]], "expected": [[1, 6], [8, 10]]},
+            {"input": [[[1, 4], [4, 5]]], "expected": [[1, 5]]},
+            {"input": [[[1, 2]]], "expected": [[1, 2]]},
         ],
         "test_cases_description": "Merge intervals: compare start with merged[-1][1] (end), not [0] (start)",
     },
