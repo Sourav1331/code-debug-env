@@ -7,7 +7,7 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; padding: 2rem 1rem; }
-  .container { max-width: 800px; margin: 0 auto; }
+  .container { max-width: 860px; margin: 0 auto; }
   .header { text-align: center; margin-bottom: 2.5rem; padding-bottom: 2rem; border-bottom: 1px solid #2a2a3a; }
   .badge { display: inline-block; background: #1e3a5f; color: #60a5fa; font-size: 12px; padding: 4px 12px; border-radius: 20px; margin-bottom: 1rem; }
   h1 { font-size: 2rem; font-weight: 600; color: #ffffff; margin-bottom: 0.5rem; }
@@ -21,6 +21,38 @@
   .stat-value { font-size: 1.8rem; font-weight: 700; color: #60a5fa; }
   .stat-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
   .section-title { font-size: 13px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
+  .tester { background: #1a1a2e; border: 1px solid #2a2a3a; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
+  .tester-title { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 1.2rem; }
+  .select-row { display: flex; gap: 10px; margin-bottom: 1rem; align-items: center; }
+  select { background: #0f1117; color: #e0e0e0; border: 1px solid #3a3a5a; border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer; flex: 1; outline: none; }
+  select:hover { border-color: #60a5fa; }
+  .btn { padding: 9px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; }
+  .btn-blue { background: #1e3a5f; color: #60a5fa; border: 1px solid #2a4a7f; }
+  .btn-blue:hover { background: #2a4a7f; }
+  .btn-green { background: #0d3321; color: #22c55e; border: 1px solid #1a5a3a; }
+  .btn-green:hover { background: #1a5a3a; }
+  .task-box { background: #0f1117; border: 1px solid #2a2a3a; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: none; }
+  .task-box.visible { display: block; }
+  .task-meta { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tag { font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+  .tag-easy { background: #0d3321; color: #22c55e; }
+  .tag-medium { background: #3a2500; color: #f59e0b; }
+  .tag-hard { background: #3a0d0d; color: #ef4444; }
+  .tag-id { background: #1a1a2e; color: #9ca3af; border: 1px solid #2a2a3a; }
+  .task-instructions { font-size: 13px; color: #9ca3af; margin-bottom: 10px; line-height: 1.5; }
+  .code-label { font-size: 11px; color: #6b7280; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+  pre { background: #0a0a14; border: 1px solid #2a2a3a; border-radius: 6px; padding: 12px; font-size: 13px; color: #e0e0e0; overflow-x: auto; white-space: pre-wrap; font-family: monospace; }
+  textarea { width: 100%; background: #0a0a14; border: 1px solid #2a2a3a; border-radius: 6px; padding: 12px; font-size: 13px; color: #e0e0e0; font-family: monospace; resize: vertical; min-height: 120px; outline: none; margin-top: 6px; }
+  textarea:focus { border-color: #60a5fa; }
+  .reward-box { display: none; background: #0f1117; border-radius: 8px; padding: 1rem; margin-top: 1rem; border: 1px solid #2a2a3a; }
+  .reward-box.visible { display: block; }
+  .reward-value { font-size: 2rem; font-weight: 700; text-align: center; margin-bottom: 6px; }
+  .reward-1 { color: #22c55e; }
+  .reward-mid { color: #f59e0b; }
+  .reward-0 { color: #ef4444; }
+  .feedback-text { font-size: 12px; color: #9ca3af; white-space: pre-wrap; line-height: 1.6; margin-top: 8px; border-top: 1px solid #2a2a3a; padding-top: 8px; }
+  .loading { color: #6b7280; font-size: 13px; text-align: center; padding: 1rem; display: none; }
+  .loading.visible { display: block; }
   .endpoints { display: flex; flex-direction: column; gap: 10px; margin-bottom: 2rem; }
   .endpoint { background: #1a1a2e; border: 1px solid #2a2a3a; border-radius: 10px; padding: 1rem 1.25rem; display: flex; align-items: center; gap: 12px; text-decoration: none; transition: border-color 0.2s; }
   .endpoint:hover { border-color: #3b82f6; }
@@ -39,7 +71,7 @@
   .diff-name.hard { color: #ef4444; }
   .diff-detail { font-size: 12px; color: #6b7280; line-height: 1.5; }
   .footer { text-align: center; padding-top: 1.5rem; border-top: 1px solid #2a2a3a; }
-  .docs-btn { display: inline-block; background: #1e3a5f; color: #60a5fa; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; transition: background 0.2s; }
+  .docs-btn { display: inline-block; background: #1e3a5f; color: #60a5fa; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; }
   .docs-btn:hover { background: #2a4a7f; }
 </style>
 </head>
@@ -49,90 +81,120 @@
     <div class="badge">OpenEnv Compatible</div>
     <h1>Code Debug Environment</h1>
     <p class="subtitle">An RL environment where LLM agents diagnose and fix buggy Python code</p>
-    <div class="status-bar">
-      <div class="dot"></div>
-      <span class="status-text">Live & Running</span>
-    </div>
+    <div class="status-bar"><div class="dot"></div><span class="status-text">Live and Running</span></div>
   </div>
 
   <div class="stats">
-    <div class="stat">
-      <div class="stat-value">45</div>
-      <div class="stat-label">Total Tasks</div>
+    <div class="stat"><div class="stat-value">45</div><div class="stat-label">Total Tasks</div></div>
+    <div class="stat"><div class="stat-value">3</div><div class="stat-label">Difficulty Levels</div></div>
+    <div class="stat"><div class="stat-value">0 to 1.0</div><div class="stat-label">Reward Range</div></div>
+  </div>
+
+  <div class="section-title">Live Tester</div>
+  <div class="tester">
+    <div class="tester-title">Try the environment interactively</div>
+    <div class="select-row">
+      <select id="difficulty-select">
+        <option value="">Random difficulty</option>
+        <option value="easy">Easy — 1 bug</option>
+        <option value="medium">Medium — 2 bugs</option>
+        <option value="hard">Hard — algorithmic bug + explanation</option>
+      </select>
+      <button class="btn btn-blue" onclick="doReset()">Get Task</button>
     </div>
-    <div class="stat">
-      <div class="stat-value">3</div>
-      <div class="stat-label">Difficulty Levels</div>
+    <div class="loading" id="loading-reset">Loading task...</div>
+    <div class="task-box" id="task-box">
+      <div class="task-meta">
+        <span class="tag tag-id" id="tag-id"></span>
+        <span class="tag" id="tag-diff"></span>
+      </div>
+      <div class="task-instructions" id="task-instructions"></div>
+      <div class="code-label">Buggy code</div>
+      <pre id="buggy-code"></pre>
+      <div class="code-label" style="margin-top:1rem;">Your fix</div>
+      <textarea id="fixed-code" placeholder="Paste your fixed code here..."></textarea>
+      <div id="explanation-section" style="display:none;">
+        <div class="code-label" style="margin-top:1rem;">Explanation (required for hard tasks)</div>
+        <textarea id="explanation" placeholder="Explain what was wrong and why your fix is correct..." style="min-height:80px;"></textarea>
+      </div>
+      <div style="margin-top:1rem;">
+        <button class="btn btn-green" onclick="doStep()">Submit Fix</button>
+      </div>
     </div>
-    <div class="stat">
-      <div class="stat-value">0–1.0</div>
-      <div class="stat-label">Reward Range</div>
+    <div class="loading" id="loading-step">Grading your fix...</div>
+    <div class="reward-box" id="reward-box">
+      <div class="reward-value" id="reward-value"></div>
+      <div style="text-align:center; font-size:13px; color:#6b7280;" id="tests-info"></div>
+      <div class="feedback-text" id="feedback-text"></div>
     </div>
   </div>
 
   <div class="section-title">API Endpoints</div>
   <div class="endpoints">
-    <a class="endpoint" href="/health">
-      <span class="method get">GET</span>
-      <div class="endpoint-info">
-        <div class="endpoint-path">/health</div>
-        <div class="endpoint-desc">Health check — returns status ok</div>
-      </div>
-      <span class="arrow">→</span>
-    </a>
-    <a class="endpoint" href="/docs#/default/reset_reset_post">
-      <span class="method post">POST</span>
-      <div class="endpoint-info">
-        <div class="endpoint-path">/reset</div>
-        <div class="endpoint-desc">Start a new episode — pass difficulty: easy | medium | hard</div>
-      </div>
-      <span class="arrow">→</span>
-    </a>
-    <a class="endpoint" href="/docs#/default/step_step_post">
-      <span class="method post">POST</span>
-      <div class="endpoint-info">
-        <div class="endpoint-path">/step</div>
-        <div class="endpoint-desc">Submit fixed code — returns reward (0.0–1.0) and feedback</div>
-      </div>
-      <span class="arrow">→</span>
-    </a>
-    <a class="endpoint" href="/state">
-      <span class="method get">GET</span>
-      <div class="endpoint-info">
-        <div class="endpoint-path">/state</div>
-        <div class="endpoint-desc">Current episode state — step count, reward, done flag</div>
-      </div>
-      <span class="arrow">→</span>
-    </a>
-    <a class="endpoint" href="/tasks">
-      <span class="method get">GET</span>
-      <div class="endpoint-info">
-        <div class="endpoint-path">/tasks</div>
-        <div class="endpoint-desc">List all 45 task IDs across all difficulty levels</div>
-      </div>
-      <span class="arrow">→</span>
-    </a>
+    <a class="endpoint" href="/health"><span class="method get">GET</span><div class="endpoint-info"><div class="endpoint-path">/health</div><div class="endpoint-desc">Health check</div></div><span class="arrow">&#8594;</span></a>
+    <a class="endpoint" href="/docs"><span class="method post">POST</span><div class="endpoint-info"><div class="endpoint-path">/reset</div><div class="endpoint-desc">Start a new episode — pass difficulty: easy | medium | hard</div></div><span class="arrow">&#8594;</span></a>
+    <a class="endpoint" href="/docs"><span class="method post">POST</span><div class="endpoint-info"><div class="endpoint-path">/step</div><div class="endpoint-desc">Submit fixed code — returns reward (0.0 to 1.0) and feedback</div></div><span class="arrow">&#8594;</span></a>
+    <a class="endpoint" href="/state"><span class="method get">GET</span><div class="endpoint-info"><div class="endpoint-path">/state</div><div class="endpoint-desc">Current episode state</div></div><span class="arrow">&#8594;</span></a>
+    <a class="endpoint" href="/tasks"><span class="method get">GET</span><div class="endpoint-info"><div class="endpoint-path">/tasks</div><div class="endpoint-desc">List all 45 task IDs</div></div><span class="arrow">&#8594;</span></a>
   </div>
 
   <div class="section-title">Difficulty Levels</div>
   <div class="difficulties">
-    <div class="diff">
-      <div class="diff-name easy">Easy</div>
-      <div class="diff-detail">15 tasks<br>1 bug per task<br>reward = tests passed / 3</div>
-    </div>
-    <div class="diff">
-      <div class="diff-name medium">Medium</div>
-      <div class="diff-detail">15 tasks<br>2 bugs per task<br>reward = tests passed / 3</div>
-    </div>
-    <div class="diff">
-      <div class="diff-name hard">Hard</div>
-      <div class="diff-detail">15 tasks<br>algorithmic bug<br>reward = 0.7×code + 0.3×explanation</div>
-    </div>
+    <div class="diff"><div class="diff-name easy">Easy</div><div class="diff-detail">15 tasks<br>1 bug per task<br>reward = tests passed / 3</div></div>
+    <div class="diff"><div class="diff-name medium">Medium</div><div class="diff-detail">15 tasks<br>2 bugs per task<br>reward = tests passed / 3</div></div>
+    <div class="diff"><div class="diff-name hard">Hard</div><div class="diff-detail">15 tasks<br>algorithmic bug<br>reward = 0.7 x code + 0.3 x explanation</div></div>
   </div>
 
-  <div class="footer">
-    <a class="docs-btn" href="/docs">Open Interactive API Docs</a>
-  </div>
+  <div class="footer"><a class="docs-btn" href="/docs">Open Interactive API Docs</a></div>
 </div>
+
+<script>
+async function doReset() {
+  const sel = document.getElementById('difficulty-select').value;
+  document.getElementById('loading-reset').classList.add('visible');
+  document.getElementById('task-box').classList.remove('visible');
+  document.getElementById('reward-box').classList.remove('visible');
+  document.getElementById('loading-step').classList.remove('visible');
+  try {
+    const body = sel ? { difficulty: sel } : {};
+    const res = await fetch('/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    const obs = data.observation;
+    document.getElementById('tag-id').textContent = obs.task_id;
+    const diffTag = document.getElementById('tag-diff');
+    diffTag.textContent = obs.difficulty.toUpperCase();
+    diffTag.className = 'tag tag-' + obs.difficulty;
+    document.getElementById('task-instructions').textContent = obs.instructions;
+    document.getElementById('buggy-code').textContent = obs.buggy_code;
+    document.getElementById('fixed-code').value = obs.buggy_code;
+    document.getElementById('explanation-section').style.display = obs.difficulty === 'hard' ? 'block' : 'none';
+    document.getElementById('task-box').classList.add('visible');
+  } catch(e) { alert('Error: ' + e.message); }
+  finally { document.getElementById('loading-reset').classList.remove('visible'); }
+}
+
+async function doStep() {
+  const fixedCode = document.getElementById('fixed-code').value.trim();
+  if (!fixedCode) { alert('Please enter your fixed code!'); return; }
+  document.getElementById('loading-step').classList.add('visible');
+  document.getElementById('reward-box').classList.remove('visible');
+  try {
+    const payload = { fixed_code: fixedCode };
+    const explanation = document.getElementById('explanation').value.trim();
+    if (explanation) payload.explanation = explanation;
+    const res = await fetch('/step', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    const obs = data.observation;
+    const reward = data.reward;
+    const rewardEl = document.getElementById('reward-value');
+    rewardEl.textContent = 'Reward: ' + reward.toFixed(2);
+    rewardEl.className = 'reward-value ' + (reward === 1.0 ? 'reward-1' : reward > 0 ? 'reward-mid' : 'reward-0');
+    document.getElementById('tests-info').textContent = obs.passed_tests + ' / ' + obs.total_tests + ' tests passed' + (data.done ? ' — Episode complete' : '');
+    document.getElementById('feedback-text').textContent = obs.feedback || '';
+    document.getElementById('reward-box').classList.add('visible');
+  } catch(e) { alert('Error: ' + e.message); }
+  finally { document.getElementById('loading-step').classList.remove('visible'); }
+}
+</script>
 </body>
 </html>

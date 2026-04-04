@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from server.environment import CodeDebugEnvironment
 from models import DebugAction, DebugObservation, DebugState
+from fastapi.responses import HTMLResponse
+import os
 
 app = FastAPI(
     title="Code Debug Environment",
@@ -29,6 +31,11 @@ app.add_middleware(
 # One global environment instance (single session)
 # For concurrent sessions, instantiate per-request with a session dict
 env = CodeDebugEnvironment()
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    with open(html_path, "r") as f:
+        return f.read()
 
 
 # ─── Request Models ─────────────────────────────────────────────────────────
