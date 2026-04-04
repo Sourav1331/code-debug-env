@@ -9,7 +9,7 @@ description: >
   many test cases pass, with bonuses for correct explanations on hard tasks.
 
 version: 1.0.0
-author: your-hf-username   # ← REPLACE with your actual HF username before submitting
+author: Souravdanyal  # ← REPLACE with your actual HF username before submitting
 
 runtime:
   type: docker
