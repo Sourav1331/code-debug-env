@@ -28,8 +28,16 @@ def _run_code_safely(code: str, func_name: str, test_input):
         func = funcs[0]
 
     try:
-        if isinstance(test_input, list):
+        if isinstance(test_input, list) and len(test_input) > 0 and isinstance(test_input[0], list):
+            # List of lists = multiple arguments e.g. [[1,2,3], 2] → func([1,2,3], 2)
             result = func(*test_input)
+        elif isinstance(test_input, list):
+            # Try passing as single list argument first
+            try:
+                result = func(test_input)
+            except TypeError:
+                # Fallback: unpack as multiple args
+                result = func(*test_input)
         else:
             result = func(test_input)
         return result, None
@@ -71,14 +79,14 @@ def grade_easy(fixed_code: str, task: dict) -> Tuple[float, int, int, str, List[
 
         if error:
             results.append({"test_id": i + 1, "passed": False, "expected": str(expected), "got": f"ERROR: {error}"})
-            feedback_lines.append(f"Test {i+1}: ❌ Error — {error}")
+            feedback_lines.append(f"Test {i+1}: ❌ Error\n   Input    : {inp!r}\n   Expected : {expected!r}\n   Error    : {error}")
         elif got == expected:
             passed += 1
             results.append({"test_id": i + 1, "passed": True, "expected": str(expected), "got": str(got)})
-            feedback_lines.append(f"Test {i+1}: ✅ Passed — got {got!r}")
+            feedback_lines.append(f"Test {i+1}: ✅ Passed\n   Input    : {inp!r}\n   Expected : {expected!r}\n   Got      : {got!r}")
         else:
             results.append({"test_id": i + 1, "passed": False, "expected": str(expected), "got": str(got)})
-            feedback_lines.append(f"Test {i+1}: ❌ Failed — expected {expected!r}, got {got!r}")
+            feedback_lines.append(f"Test {i+1}: ❌ Failed\n   Input    : {inp!r}\n   Expected : {expected!r}\n   Got      : {got!r}")
 
     reward = round(passed / total, 2)
     feedback = "\n".join(feedback_lines)
