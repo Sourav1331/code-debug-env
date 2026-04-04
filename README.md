@@ -1,5 +1,12 @@
 # Code Debug Environment
-
+---
+title: Code Debug Env
+emoji: 🐛
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
 An [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible RL environment where an LLM agent diagnoses and fixes buggy Python code across three difficulty levels.
 
 ---
