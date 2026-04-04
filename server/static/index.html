@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Debug Environment</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; padding: 2rem 1rem; }
+  .container { max-width: 800px; margin: 0 auto; }
+  .header { text-align: center; margin-bottom: 2.5rem; padding-bottom: 2rem; border-bottom: 1px solid #2a2a3a; }
+  .badge { display: inline-block; background: #1e3a5f; color: #60a5fa; font-size: 12px; padding: 4px 12px; border-radius: 20px; margin-bottom: 1rem; }
+  h1 { font-size: 2rem; font-weight: 600; color: #ffffff; margin-bottom: 0.5rem; }
+  .subtitle { color: #9ca3af; font-size: 1rem; }
+  .status-bar { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 1rem; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .status-text { font-size: 13px; color: #22c55e; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 2rem; }
+  .stat { background: #1a1a2e; border: 1px solid #2a2a3a; border-radius: 10px; padding: 1.2rem; text-align: center; }
+  .stat-value { font-size: 1.8rem; font-weight: 700; color: #60a5fa; }
+  .stat-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+  .section-title { font-size: 13px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
+  .endpoints { display: flex; flex-direction: column; gap: 10px; margin-bottom: 2rem; }
+  .endpoint { background: #1a1a2e; border: 1px solid #2a2a3a; border-radius: 10px; padding: 1rem 1.25rem; display: flex; align-items: center; gap: 12px; text-decoration: none; transition: border-color 0.2s; }
+  .endpoint:hover { border-color: #3b82f6; }
+  .method { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 5px; min-width: 42px; text-align: center; }
+  .get { background: #0d3321; color: #22c55e; }
+  .post { background: #1e3a5f; color: #60a5fa; }
+  .endpoint-info { flex: 1; }
+  .endpoint-path { font-size: 14px; font-weight: 500; color: #e0e0e0; font-family: monospace; }
+  .endpoint-desc { font-size: 12px; color: #6b7280; margin-top: 2px; }
+  .arrow { color: #4b5563; font-size: 14px; }
+  .difficulties { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 2rem; }
+  .diff { background: #1a1a2e; border: 1px solid #2a2a3a; border-radius: 10px; padding: 1rem; text-align: center; }
+  .diff-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .diff-name.easy { color: #22c55e; }
+  .diff-name.medium { color: #f59e0b; }
+  .diff-name.hard { color: #ef4444; }
+  .diff-detail { font-size: 12px; color: #6b7280; line-height: 1.5; }
+  .footer { text-align: center; padding-top: 1.5rem; border-top: 1px solid #2a2a3a; }
+  .docs-btn { display: inline-block; background: #1e3a5f; color: #60a5fa; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; transition: background 0.2s; }
+  .docs-btn:hover { background: #2a4a7f; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="badge">OpenEnv Compatible</div>
+    <h1>Code Debug Environment</h1>
+    <p class="subtitle">An RL environment where LLM agents diagnose and fix buggy Python code</p>
+    <div class="status-bar">
+      <div class="dot"></div>
+      <span class="status-text">Live & Running</span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value">45</div>
+      <div class="stat-label">Total Tasks</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">3</div>
+      <div class="stat-label">Difficulty Levels</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">0–1.0</div>
+      <div class="stat-label">Reward Range</div>
+    </div>
+  </div>
+
+  <div class="section-title">API Endpoints</div>
+  <div class="endpoints">
+    <a class="endpoint" href="/health">
+      <span class="method get">GET</span>
+      <div class="endpoint-info">
+        <div class="endpoint-path">/health</div>
+        <div class="endpoint-desc">Health check — returns status ok</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+    <a class="endpoint" href="/docs#/default/reset_reset_post">
+      <span class="method post">POST</span>
+      <div class="endpoint-info">
+        <div class="endpoint-path">/reset</div>
+        <div class="endpoint-desc">Start a new episode — pass difficulty: easy | medium | hard</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+    <a class="endpoint" href="/docs#/default/step_step_post">
+      <span class="method post">POST</span>
+      <div class="endpoint-info">
+        <div class="endpoint-path">/step</div>
+        <div class="endpoint-desc">Submit fixed code — returns reward (0.0–1.0) and feedback</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+    <a class="endpoint" href="/state">
+      <span class="method get">GET</span>
+      <div class="endpoint-info">
+        <div class="endpoint-path">/state</div>
+        <div class="endpoint-desc">Current episode state — step count, reward, done flag</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+    <a class="endpoint" href="/tasks">
+      <span class="method get">GET</span>
+      <div class="endpoint-info">
+        <div class="endpoint-path">/tasks</div>
+        <div class="endpoint-desc">List all 45 task IDs across all difficulty levels</div>
+      </div>
+      <span class="arrow">→</span>
+    </a>
+  </div>
+
+  <div class="section-title">Difficulty Levels</div>
+  <div class="difficulties">
+    <div class="diff">
+      <div class="diff-name easy">Easy</div>
+      <div class="diff-detail">15 tasks<br>1 bug per task<br>reward = tests passed / 3</div>
+    </div>
+    <div class="diff">
+      <div class="diff-name medium">Medium</div>
+      <div class="diff-detail">15 tasks<br>2 bugs per task<br>reward = tests passed / 3</div>
+    </div>
+    <div class="diff">
+      <div class="diff-name hard">Hard</div>
+      <div class="diff-detail">15 tasks<br>algorithmic bug<br>reward = 0.7×code + 0.3×explanation</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a class="docs-btn" href="/docs">Open Interactive API Docs</a>
+  </div>
+</div>
+</body>
+</html>
