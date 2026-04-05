@@ -29,7 +29,7 @@ GRADERS = {
     "hard": grade_hard,
 }
 
-MAX_STEPS = 3
+MAX_STEPS = 5
 
 
 class CodeDebugEnvironment(Environment):
@@ -100,6 +100,41 @@ class CodeDebugEnvironment(Environment):
             )
 
         self._step_count += 1
+
+        # ── Invalid action penalty ──────────────────────────────────────────
+        code = action.fixed_code.strip() if action.fixed_code else ""
+        if not code:
+            done = self._step_count >= MAX_STEPS
+            self._done = done
+            return DebugObservation(
+                task_id=self._current_task["task_id"],
+                difficulty=self._difficulty,
+                buggy_code=self._current_task["buggy_code"],
+                instructions=self._current_task["instructions"],
+                test_cases_description=self._current_task["test_cases_description"],
+                reward=0.0,
+                passed_tests=0,
+                total_tests=len(self._current_task["test_cases"]),
+                feedback="❌ Invalid action: fixed_code is empty. Penalty applied. Submit valid Python code.",
+                done=done,
+            )
+
+        # Check for obvious non-Python (very short or no 'def' keyword)
+        if len(code) < 5 or ("def " not in code and "lambda" not in code and "=" not in code):
+            done = self._step_count >= MAX_STEPS
+            self._done = done
+            return DebugObservation(
+                task_id=self._current_task["task_id"],
+                difficulty=self._difficulty,
+                buggy_code=self._current_task["buggy_code"],
+                instructions=self._current_task["instructions"],
+                test_cases_description=self._current_task["test_cases_description"],
+                reward=0.0,
+                passed_tests=0,
+                total_tests=len(self._current_task["test_cases"]),
+                feedback="❌ Invalid action: submission does not appear to be valid Python. Penalty applied.",
+                done=done,
+            )
 
         # Grade the submission
         grader = GRADERS[self._difficulty]

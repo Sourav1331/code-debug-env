@@ -1,21 +1,12 @@
 #!/usr/bin/env python3
-# inference.py
-# ─────────────────────────────────────────────────────────────────────────────
-# Baseline inference script for the Code Debug Environment.
-# Must be run from the project root.
+# inference.py — Code Debug Environment Baseline Agent
+# Log format strictly follows [START] [STEP] [END] as required by evaluator.
 #
-# Required environment variables:
-#   API_BASE_URL  — LLM API endpoint (OpenAI-compatible)
-#   MODEL_NAME    — Model identifier
-#   HF_TOKEN      — Hugging Face / API key
-#
+# Required env vars: API_BASE_URL, MODEL_NAME, HF_TOKEN
 # Usage:
 #   python inference.py
-#   python inference.py --url https://your-hf-space.hf.space
+#   python inference.py --url https://Souravdanyal-code-debug-env.hf.space
 #   python inference.py --difficulty easy
-#
-# Log format: [START], [STEP], [END] — strictly followed for evaluation scoring.
-# ─────────────────────────────────────────────────────────────────────────────
 
 import os
 import sys
@@ -24,96 +15,52 @@ import time
 import argparse
 import requests
 from openai import OpenAI
+from typing import List, Optional
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
-ENV_URL = os.environ.get("ENV_URL", "http://localhost:7860")
-
-MAX_STEPS = 3
-DIFFICULTIES = ["easy", "medium", "hard"]
-
+MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+HF_TOKEN     = os.environ.get("HF_TOKEN", "")
+ENV_URL      = os.environ.get("ENV_URL", "http://localhost:7860")
+BENCHMARK    = "code-debug-env"
+MAX_STEPS    = 5
 
 # ─── OpenAI Client ───────────────────────────────────────────────────────────
+client = OpenAI(api_key=HF_TOKEN or "dummy", base_url=API_BASE_URL)
 
-client = OpenAI(
-    api_key=HF_TOKEN or "dummy",
-    base_url=API_BASE_URL,
-)
+# ─── Logging — STRICT FORMAT REQUIRED BY EVALUATOR ───────────────────────────
+# [START] task=<task_id> env=<benchmark> model=<model_name>
+# [STEP] step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
+# [END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
 
+def log_start(task_id: str, env: str, model: str) -> None:
+    print(f"[START] task={task_id} env={env} model={model}", flush=True)
 
-# ─── Logging (strict format required by evaluator) ───────────────────────────
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
-def log_start(task_id: str, difficulty: str, episode: int):
-    print(json.dumps({
-        "type": "START",
-        "episode": episode,
-        "task_id": task_id,
-        "difficulty": difficulty,
-        "timestamp": time.time(),
-    }), flush=True)
-
-
-def log_step(task_id: str, step: int, action_summary: str, reward: float, done: bool):
-    print(json.dumps({
-        "type": "STEP",
-        "task_id": task_id,
-        "step": step,
-        "action": action_summary,
-        "reward": reward,
-        "done": done,
-        "timestamp": time.time(),
-    }), flush=True)
-
-
-def log_end(task_id: str, difficulty: str, final_reward: float, steps_taken: int, episode: int):
-    print(json.dumps({
-        "type": "END",
-        "episode": episode,
-        "task_id": task_id,
-        "difficulty": difficulty,
-        "final_reward": final_reward,
-        "steps_taken": steps_taken,
-        "timestamp": time.time(),
-    }), flush=True)
-
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
 
 # ─── Environment Client ───────────────────────────────────────────────────────
-
 def env_reset(env_url: str, difficulty: str) -> dict:
-    resp = requests.post(
-        f"{env_url}/reset",
-        json={"difficulty": difficulty},
-        timeout=30,
-    )
+    resp = requests.post(f"{env_url}/reset", json={"difficulty": difficulty}, timeout=30)
     resp.raise_for_status()
     return resp.json()
-
 
 def env_step(env_url: str, fixed_code: str, explanation: str = None) -> dict:
     payload = {"fixed_code": fixed_code}
     if explanation:
         payload["explanation"] = explanation
-    resp = requests.post(
-        f"{env_url}/step",
-        json=payload,
-        timeout=30,
-    )
+    resp = requests.post(f"{env_url}/step", json=payload, timeout=30)
     resp.raise_for_status()
     return resp.json()
-
-
-def env_state(env_url: str) -> dict:
-    resp = requests.get(f"{env_url}/state", timeout=10)
-    resp.raise_for_status()
-    return resp.json()
-
 
 # ─── LLM Agent ───────────────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = """You are an expert Python debugging agent. 
+SYSTEM_PROMPT = """You are an expert Python debugging agent.
 You will be given buggy Python code and must fix it.
 
 For easy tasks: fix the single bug.
@@ -133,11 +80,8 @@ Rules:
 - Do NOT include markdown fences or any text outside the JSON object.
 """
 
-
 def call_llm(buggy_code: str, instructions: str, difficulty: str,
              feedback: str = None, attempt: int = 1) -> dict:
-    """Call the LLM and return parsed {fixed_code, explanation}."""
-
     user_content = f"""Task difficulty: {difficulty}
 Instructions: {instructions}
 
@@ -156,130 +100,98 @@ Buggy code:
 
     try:
         response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            max_tokens=1000,
-            temperature=0.1,
+            model=MODEL_NAME, messages=messages, max_tokens=1000, temperature=0.1,
         )
         content = response.choices[0].message.content.strip()
-
-        # Strip markdown fences if present
         if content.startswith("```"):
             lines = content.split("\n")
             content = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
-
         parsed = json.loads(content)
-        return {
-            "fixed_code": parsed.get("fixed_code", ""),
-            "explanation": parsed.get("explanation", None),
-        }
+        return {"fixed_code": parsed.get("fixed_code", ""), "explanation": parsed.get("explanation", None)}
     except json.JSONDecodeError:
-        # Fallback: return original code if parsing fails
         return {"fixed_code": buggy_code, "explanation": None}
     except Exception as e:
-        print(f"LLM call failed: {e}", file=sys.stderr)
+        print(f"# LLM call failed: {e}", file=sys.stderr)
         return {"fixed_code": buggy_code, "explanation": None}
 
-
 # ─── Main Episode Loop ────────────────────────────────────────────────────────
-
-def run_episode(env_url: str, difficulty: str, episode_num: int) -> float:
-    """Run one full episode. Returns final reward."""
-
-    # Reset
+def run_episode(env_url: str, difficulty: str) -> tuple:
     reset_data = env_reset(env_url, difficulty)
     obs = reset_data["observation"]
-
-    task_id = obs["task_id"]
-    buggy_code = obs["buggy_code"]
+    task_id      = obs["task_id"]
+    buggy_code   = obs["buggy_code"]
     instructions = obs["instructions"]
 
-    log_start(task_id, difficulty, episode_num)
+    log_start(task_id=task_id, env=BENCHMARK, model=MODEL_NAME)
 
     last_feedback = None
-    final_reward = 0.0
-    step_num = 0
+    rewards: List[float] = []
+    steps_taken = 0
+    success = False
 
     for attempt in range(1, MAX_STEPS + 1):
-        step_num = attempt
-
-        # Call LLM
+        steps_taken = attempt
         agent_action = call_llm(
-            buggy_code=buggy_code,
-            instructions=instructions,
-            difficulty=difficulty,
-            feedback=last_feedback,
-            attempt=attempt,
+            buggy_code=buggy_code, instructions=instructions,
+            difficulty=difficulty, feedback=last_feedback, attempt=attempt,
         )
+        fixed_code = agent_action["fixed_code"]
 
-        # Submit to environment
-        result = env_step(
-            env_url,
-            fixed_code=agent_action["fixed_code"],
-            explanation=agent_action.get("explanation"),
-        )
+        if not fixed_code or not fixed_code.strip():
+            log_step(step=attempt, action="empty_submission", reward=0.0, done=False, error="empty_code")
+            rewards.append(0.0)
+            continue
+
+        try:
+            result = env_step(env_url, fixed_code=fixed_code, explanation=agent_action.get("explanation"))
+        except Exception as e:
+            log_step(step=attempt, action="step_failed", reward=0.0, done=False, error=str(e)[:60])
+            rewards.append(0.0)
+            continue
 
         reward = result.get("reward", 0.0)
-        done = result.get("done", False)
-        obs_result = result.get("observation", {})
-        last_feedback = obs_result.get("feedback", "")
+        done   = result.get("done", False)
+        obs_r  = result.get("observation", {})
+        last_feedback = obs_r.get("feedback", "")
 
-        log_step(
-            task_id=task_id,
-            step=attempt,
-            action_summary=f"Submitted fix attempt {attempt} ({len(agent_action['fixed_code'])} chars)",
-            reward=reward,
-            done=done,
-        )
+        log_step(step=attempt, action=f"fix_{difficulty}_attempt{attempt}", reward=reward, done=done, error=None)
+        rewards.append(reward)
 
-        final_reward = reward
-
+        if reward >= 1.0:
+            success = True
         if done:
             break
 
-    log_end(task_id, difficulty, final_reward, step_num, episode_num)
-    return final_reward
-
+    log_end(success=success, steps=steps_taken, rewards=rewards)
+    return success, steps_taken, rewards
 
 def main():
     parser = argparse.ArgumentParser(description="Code Debug Environment Baseline Agent")
     parser.add_argument("--url", default=ENV_URL, help="Environment base URL")
-    parser.add_argument("--difficulty", default=None, choices=["easy", "medium", "hard", "all"],
-                        help="Difficulty to run. 'all' runs one episode per difficulty.")
+    parser.add_argument("--difficulty", default=None, choices=["easy", "medium", "hard", "all"])
     args = parser.parse_args()
-
     env_url = args.url.rstrip("/")
 
-    # Health check
     try:
         health = requests.get(f"{env_url}/health", timeout=10)
         health.raise_for_status()
-        print(json.dumps({"type": "INFO", "message": f"Environment healthy at {env_url}"}), flush=True)
+        print(f"# Environment healthy at {env_url}", flush=True)
     except Exception as e:
-        print(json.dumps({"type": "ERROR", "message": f"Health check failed: {e}"}), flush=True)
+        print(f"# Health check failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Determine episodes to run
-    if args.difficulty == "all" or args.difficulty is None:
-        episodes = [("easy", 1), ("medium", 2), ("hard", 3)]
-    else:
-        episodes = [(args.difficulty, 1)]
+    difficulties = ["easy", "medium", "hard"] if (args.difficulty in ("all", None)) else [args.difficulty]
 
     all_rewards = []
-    for episode_num, (difficulty, ep_id) in enumerate(episodes, start=1):
-        reward = run_episode(env_url, difficulty, episode_num)  # use episode_num, not ep_id
-        all_rewards.append({"difficulty": difficulty, "reward": reward})
-        time.sleep(0.5)  # Small pause between episodes
+    all_successes = []
+    for difficulty in difficulties:
+        success, steps, rewards = run_episode(env_url, difficulty)
+        all_rewards.extend(rewards)
+        all_successes.append(success)
+        time.sleep(0.5)
 
-    # Summary
-    print(json.dumps({
-        "type": "SUMMARY",
-        "total_episodes": len(all_rewards),
-        "results": all_rewards,
-        "average_reward": round(sum(r["reward"] for r in all_rewards) / len(all_rewards), 3),
-        "timestamp": time.time(),
-    }), flush=True)
-
+    avg = round(sum(all_rewards) / len(all_rewards), 3) if all_rewards else 0.0
+    print(f"# SUMMARY: {sum(all_successes)}/{len(difficulties)} tasks solved | avg_reward={avg}", flush=True)
 
 if __name__ == "__main__":
     main()

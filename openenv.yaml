@@ -4,12 +4,21 @@ type: typed
 description: >
   A real-world RL environment where an LLM agent diagnoses and fixes
   buggy Python code across three difficulty levels (easy, medium, hard).
-  Tasks are drawn from real-world domains: data processing, API handlers,
-  and algorithmic functions. Rewards are partial and proportional to how
-  many test cases pass, with bonuses for correct explanations on hard tasks.
+  Tasks are drawn from real-world domains: data processing, string algorithms,
+  API validation, sorting, dynamic programming, and graph algorithms.
+  Rewards are partial and proportional to test cases passed, with bonuses
+  for correct explanations on hard tasks.
 
 version: 1.0.0
-author: Souravdanyal 
+author: Souravdanyal
+
+tags:
+  - code-debugging
+  - python
+  - reinforcement-learning
+  - openenv
+  - llm-agent
+  - software-engineering
 
 runtime:
   type: docker
@@ -20,29 +29,89 @@ app:
   host: 0.0.0.0
   port: 7860
 
+config:
+  episode_timeout: 300
+  max_steps: 5
+
 tasks:
   - id: easy
-    description: "Fix a single off-by-one or operator bug in a Python function"
+    description: "Fix a single off-by-one, operator, or return bug in a Python function"
     difficulty: easy
-    max_steps: 3
+    max_steps: 5
     reward_range: [0.0, 1.0]
+    grader: deterministic
+    num_tasks: 15
 
   - id: medium
-    description: "Fix two bugs (logic + edge case) so all test cases pass"
+    description: "Fix two bugs (logic bug + edge case) so all test cases pass"
     difficulty: medium
-    max_steps: 3
+    max_steps: 5
     reward_range: [0.0, 1.0]
+    grader: deterministic
+    num_tasks: 15
 
   - id: hard
-    description: "Fix an algorithmic bug AND provide a correct explanation"
+    description: "Fix an algorithmic bug AND provide a correct explanation of the root cause"
     difficulty: hard
-    max_steps: 3
+    max_steps: 5
     reward_range: [0.0, 1.0]
+    grader: deterministic
+    num_tasks: 15
 
 reward_range: [0.0, 1.0]
+
+action_space:
+  type: dict
+  description: "Agent submits fixed Python code and optional explanation"
+  fields:
+    fixed_code:
+      type: string
+      required: true
+      description: "Complete corrected Python function as a string. Must be valid Python."
+    explanation:
+      type: string
+      required: false
+      description: "Required for hard tasks. Explain the bug, root cause, and why fix is correct."
+
+observation_space:
+  type: dict
+  description: "Environment observation returned after reset() and step()"
+  fields:
+    task_id:
+      type: string
+      description: "Unique identifier for the current task instance (e.g. easy_003)"
+    difficulty:
+      type: enum
+      values: [easy, medium, hard]
+      description: "Task difficulty level"
+    buggy_code:
+      type: string
+      description: "The buggy Python function the agent must fix"
+    instructions:
+      type: string
+      description: "Natural language description of what is wrong and what to fix"
+    test_cases_description:
+      type: string
+      description: "Description of what the test cases check"
+    reward:
+      type: float
+      description: "Score from 0.0 to 1.0 for this step (null on reset)"
+    passed_tests:
+      type: integer
+      description: "Number of test cases passed (null on reset)"
+    total_tests:
+      type: integer
+      description: "Total number of test cases (always 3)"
+    feedback:
+      type: string
+      description: "Detailed per-test feedback showing input, expected, and got values"
+    done:
+      type: boolean
+      description: "True when episode is complete (perfect score or max steps reached)"
 
 api:
   reset: /reset
   step: /step
   state: /state
   health: /health
+  tasks: /tasks
