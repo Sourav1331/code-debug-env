@@ -1,4 +1,7 @@
 # server/app.py
+# FastAPI server exposing the OpenEnv standard endpoints.
+# Port 7860 required for Hugging Face Spaces.
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -7,8 +10,7 @@ from pydantic import BaseModel
 import os
 
 from server.environment import CodeDebugEnvironment
-from models import DebugAction
-from fastapi.responses import HTMLResponse, Response
+from models import DebugAction, DebugObservation, DebugState
 
 app = FastAPI(
     title="Code Debug Environment",
@@ -26,29 +28,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# One global environment instance (single session)
+# For concurrent sessions, instantiate per-request with a session dict
 env = CodeDebugEnvironment()
 
 
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    # Simple 1x1 transparent icon
-    return Response(content=b"", media_type="image/x-icon")
-
-@app.get("/", response_class=HTMLResponse)
-async def root():
-    """Homepage with live tester UI."""
-    html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
-    with open(html_path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "environment": "code-debug-env", "version": "1.0.0"}
-
+# ─── Request Models ─────────────────────────────────────────────────────────
 
 class ResetRequest(BaseModel):
-    difficulty: Optional[str] = None
+    difficulty: Optional[str] = None  # "easy" | "medium" | "hard" | None (random)
 
 
 class StepRequest(BaseModel):
@@ -56,32 +44,78 @@ class StepRequest(BaseModel):
     explanation: Optional[str] = None
 
 
+# ─── Response wrapper matching OpenEnv StepResult shape ──────────────────────
+
 class StepResponse(BaseModel):
     observation: dict
     reward: float
     done: bool
 
 
+# ─── Endpoints ───────────────────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """Homepage — shows environment info and API endpoints."""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    with open(html_path, "r") as f:
+        return f.read()
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint — must return 200 for submission validation."""
+    return {"status": "ok", "environment": "code-debug-env", "version": "1.0.0"}
+
+
 @app.post("/reset")
 async def reset(request: ResetRequest = ResetRequest()) -> dict:
+    """
+    Reset the environment to start a new episode.
+    Optionally pass difficulty: 'easy' | 'medium' | 'hard'
+    """
     try:
         observation = env.reset(difficulty=request.difficulty)
-        return {"observation": observation.model_dump(), "reward": 0.0, "done": False}
+        return {
+            "observation": observation.model_dump(),
+            "reward": 0.0,
+            "done": False,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
 
 
 @app.post("/step")
 async def step(request: StepRequest) -> StepResponse:
+    """
+    Submit a code fix (and optional explanation for hard tasks).
+    Returns observation with reward (0.0-1.0), feedback, and done flag.
+    """
     if not request.fixed_code or not request.fixed_code.strip():
         raise HTTPException(status_code=400, detail="fixed_code must not be empty.")
+
     try:
-        action = DebugAction(fixed_code=request.fixed_code, explanation=request.explanation)
+        action = DebugAction(
+            fixed_code=request.fixed_code,
+            explanation=request.explanation,
+        )
         observation = env.step(action)
         return StepResponse(
             observation=observation.model_dump(),
             reward=observation.reward or 0.0,
             done=observation.done,
+        )
+    except TimeoutError:
+        # Code execution timed out — return 0 reward instead of 500
+        return StepResponse(
+            observation={"task_id": "unknown", "difficulty": "unknown",
+                        "buggy_code": "", "instructions": "",
+                        "test_cases_description": "", "reward": 0.0,
+                        "passed_tests": 0, "total_tests": 3,
+                        "feedback": "TimeoutError: Code execution timed out. Possible infinite loop.",
+                        "done": False},
+            reward=0.0,
+            done=False,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Step failed: {str(e)}")
@@ -89,14 +123,17 @@ async def step(request: StepRequest) -> StepResponse:
 
 @app.get("/state")
 async def state() -> dict:
+    """Return the current episode state."""
     try:
-        return env.state.model_dump()
+        s = env.state
+        return s.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"State failed: {str(e)}")
 
 
 @app.get("/tasks")
 async def list_tasks() -> dict:
+    """List available task IDs per difficulty (for inspection)."""
     from server.tasks.task_easy import EASY_TASKS
     from server.tasks.task_medium import MEDIUM_TASKS
     from server.tasks.task_hard import HARD_TASKS

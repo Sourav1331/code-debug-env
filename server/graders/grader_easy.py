@@ -3,13 +3,19 @@
 # Reward is proportional to tests passed (0.33, 0.66, 1.0).
 
 import traceback
+import signal
 from typing import Tuple, List
+
+
+def _timeout_handler(signum, frame):
+    raise TimeoutError("Code execution timed out (infinite loop or slow code)")
 
 
 def _run_code_safely(code: str, func_name: str, test_input):
     """
     Executes the submitted code in an isolated namespace and calls the function.
     Returns (output, error_message).
+    Times out after 5 seconds to prevent infinite loops.
     """
     namespace = {}
     try:
@@ -21,27 +27,42 @@ def _run_code_safely(code: str, func_name: str, test_input):
 
     func = namespace.get(func_name)
     if func is None:
-        # Try to find any callable
         funcs = [v for v in namespace.values() if callable(v) and not v.__name__.startswith("_")]
         if not funcs:
             return None, "No callable function found in submitted code."
         func = funcs[0]
 
     try:
+        # Set 5 second timeout to catch infinite loops
+        try:
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(5)
+        except (AttributeError, OSError):
+            pass  # Windows doesn't support SIGALRM, skip timeout
+
         if isinstance(test_input, list) and len(test_input) > 0 and isinstance(test_input[0], list):
-            # List of lists = multiple arguments e.g. [[1,2,3], 2] → func([1,2,3], 2)
             result = func(*test_input)
         elif isinstance(test_input, list):
-            # Try passing as single list argument first
             try:
                 result = func(test_input)
             except TypeError:
-                # Fallback: unpack as multiple args
                 result = func(*test_input)
         else:
             result = func(test_input)
+
+        try:
+            signal.alarm(0)  # Cancel timeout
+        except (AttributeError, OSError):
+            pass
+
         return result, None
+    except TimeoutError as e:
+        return None, f"TimeoutError: {e}"
     except Exception as e:
+        try:
+            signal.alarm(0)
+        except (AttributeError, OSError):
+            pass
         return None, f"RuntimeError: {traceback.format_exc(limit=2)}"
 
 
