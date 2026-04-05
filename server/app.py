@@ -105,19 +105,27 @@ async def step(request: StepRequest) -> StepResponse:
             reward=observation.reward or 0.0,
             done=observation.done,
         )
-    except TimeoutError:
+    except TimeoutError as e:
         # Code execution timed out — return 0 reward instead of 500
+        import traceback
+        print(f"[ERROR] TimeoutError in step: {e}\n{traceback.format_exc()}", flush=True)
         return StepResponse(
-            observation={"task_id": "unknown", "difficulty": "unknown",
-                        "buggy_code": "", "instructions": "",
-                        "test_cases_description": "", "reward": 0.0,
-                        "passed_tests": 0, "total_tests": 3,
-                        "feedback": "TimeoutError: Code execution timed out. Possible infinite loop.",
+            observation={"task_id": env._current_task.get("task_id", "unknown") if env._current_task else "unknown",
+                        "difficulty": env._difficulty,
+                        "buggy_code": env._current_task.get("buggy_code", "") if env._current_task else "",
+                        "instructions": env._current_task.get("instructions", "") if env._current_task else "",
+                        "test_cases_description": env._current_task.get("test_cases_description", "") if env._current_task else "",
+                        "reward": 0.0,
+                        "passed_tests": 0,
+                        "total_tests": len(env._current_task.get("test_cases", [])) if env._current_task else 3,
+                        "feedback": "TimeoutError: Code execution timed out. Possible infinite loop or very slow code.",
                         "done": False},
             reward=0.0,
             done=False,
         )
     except Exception as e:
+        import traceback
+        print(f"[ERROR] Exception in step: {e}\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=f"Step failed: {str(e)}")
 
 

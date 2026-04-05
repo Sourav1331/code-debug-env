@@ -201,9 +201,12 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
             result = env_step(env_url, fixed_code=fixed_code,
                               explanation=agent_action.get("explanation"))
         except Exception as e:
+            error_msg = str(e)[:200]
             log_step(step=attempt, action="step_failed",
-                     reward=0.0, done=False, error=str(e)[:60])
+                     reward=0.0, done=False, error=error_msg[:60])
             rewards.append(0.0)
+            # Pass error feedback to LLM for next attempt
+            last_feedback = f"❌ Server Error: {error_msg}\n\nYour code likely caused a runtime error or timeout. Check for:\n- Infinite loops\n- Syntax errors\n- Runtime exceptions (IndexError, KeyError, etc.)\n- Edge cases not handled"
             continue
 
         reward = result.get("reward", 0.0)
