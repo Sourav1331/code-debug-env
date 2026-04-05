@@ -29,10 +29,6 @@ MAX_STEPS    = 5
 client = OpenAI(api_key=HF_TOKEN or "dummy", base_url=API_BASE_URL)
 
 # ─── Logging — STRICT FORMAT REQUIRED BY EVALUATOR ───────────────────────────
-# [START] task=<task_id> env=<benchmark> model=<model_name>
-# [STEP] step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
-# [END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
-
 def log_start(task_id: str, env: str, model: str) -> None:
     print(f"[START] task={task_id} env={env} model={model}", flush=True)
 
@@ -60,38 +56,64 @@ def env_step(env_url: str, fixed_code: str, explanation: str = None) -> dict:
     return resp.json()
 
 # ─── LLM Agent ───────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an expert Python debugging agent.
-You will be given buggy Python code and must fix it.
+SYSTEM_PROMPT = """You are an expert Python debugging agent. Your job is to find and fix bugs in Python functions.
 
-For easy tasks: fix the single bug.
-For medium tasks: fix both bugs.
-For hard tasks: fix the algorithmic bug AND explain your reasoning in the 'explanation' field.
+CRITICAL RULES:
+- You MUST respond ONLY with valid JSON — no markdown, no explanation outside JSON
+- Return the COMPLETE fixed function, not just the changed line
+- The fixed_code must be syntactically valid Python
+- For hard tasks, the explanation field MUST describe: what the bug was, why it caused failures, and how your fix resolves it
 
-You MUST respond ONLY with valid JSON in this exact format:
+Response format (strictly):
 {
-  "fixed_code": "<complete fixed Python function as a string>",
-  "explanation": "<required for hard tasks; describe what was wrong and why your fix is correct>"
+  "fixed_code": "<complete corrected Python function>",
+  "explanation": "<for hard tasks: detailed explanation of bug and fix>"
 }
 
-Rules:
-- Return the COMPLETE function, not just the changed line.
-- The fixed_code must be valid Python that can be exec'd.
-- For hard tasks, explanation must discuss the algorithm, root cause, and fix.
-- Do NOT include markdown fences or any text outside the JSON object.
+DEBUGGING STRATEGY:
+1. Read the instructions carefully — they tell you exactly what type of bug exists
+2. Trace through the logic with the test inputs mentally
+3. For easy tasks: find the ONE wrong operator, value, or return statement
+4. For medium tasks: find BOTH bugs — usually one logic bug + one edge case
+5. For hard tasks: find the algorithmic flaw + write a clear explanation
+6. If your previous attempt failed, READ THE FEEDBACK — it shows exactly which inputs failed and what output was expected
 """
 
 def call_llm(buggy_code: str, instructions: str, difficulty: str,
-             feedback: str = None, attempt: int = 1) -> dict:
+             feedback: str = None, attempt: int = 1,
+             previous_code: str = None) -> dict:
+
     user_content = f"""Task difficulty: {difficulty}
 Instructions: {instructions}
 
-Buggy code:
+Buggy code to fix:
 ```python
 {buggy_code}
 ```
 """
     if feedback and attempt > 1:
-        user_content += f"\nPrevious attempt feedback:\n{feedback}\n\nPlease fix the remaining issues."
+        user_content += f"""
+PREVIOUS ATTEMPT FAILED. Here is the feedback showing what went wrong:
+{feedback}
+
+Your previous fix was:
+```python
+{previous_code or 'unknown'}
+```
+
+IMPORTANT: Your previous fix did not work. Carefully analyze the feedback above.
+Look at the Input, Expected, and Got values for each failing test.
+Try a completely different approach to fix the bug.
+"""
+
+    if difficulty == "hard":
+        user_content += """
+Remember: For hard tasks you MUST include a detailed explanation field describing:
+- What the algorithmic bug was
+- Why it caused incorrect results  
+- How your fix resolves it
+Explanation quality affects 30% of your reward.
+"""
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -100,15 +122,39 @@ Buggy code:
 
     try:
         response = client.chat.completions.create(
-            model=MODEL_NAME, messages=messages, max_tokens=1000, temperature=0.1,
+            model=MODEL_NAME,
+            messages=messages,
+            max_tokens=1500,
+            temperature=0.2 if attempt == 1 else 0.5,
         )
         content = response.choices[0].message.content.strip()
+
+        # Strip markdown fences
         if content.startswith("```"):
             lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
+            content = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
+        # Strip json prefix
+        if content.startswith("json"):
+            content = content[4:].strip()
+
         parsed = json.loads(content)
-        return {"fixed_code": parsed.get("fixed_code", ""), "explanation": parsed.get("explanation", None)}
+        return {
+            "fixed_code": parsed.get("fixed_code", ""),
+            "explanation": parsed.get("explanation", None),
+        }
     except json.JSONDecodeError:
+        # Try to extract code from malformed response
+        if "def " in content:
+            lines = content.split("\n")
+            code_lines = []
+            in_code = False
+            for line in lines:
+                if line.strip().startswith("def "):
+                    in_code = True
+                if in_code:
+                    code_lines.append(line)
+            if code_lines:
+                return {"fixed_code": "\n".join(code_lines), "explanation": None}
         return {"fixed_code": buggy_code, "explanation": None}
     except Exception as e:
         print(f"# LLM call failed: {e}", file=sys.stderr)
@@ -125,27 +171,38 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
     log_start(task_id=task_id, env=BENCHMARK, model=MODEL_NAME)
 
     last_feedback = None
+    last_fixed_code = None
     rewards: List[float] = []
     steps_taken = 0
     success = False
 
     for attempt in range(1, MAX_STEPS + 1):
         steps_taken = attempt
+
         agent_action = call_llm(
-            buggy_code=buggy_code, instructions=instructions,
-            difficulty=difficulty, feedback=last_feedback, attempt=attempt,
+            buggy_code=buggy_code,
+            instructions=instructions,
+            difficulty=difficulty,
+            feedback=last_feedback,
+            attempt=attempt,
+            previous_code=last_fixed_code,
         )
+
         fixed_code = agent_action["fixed_code"]
+        last_fixed_code = fixed_code
 
         if not fixed_code or not fixed_code.strip():
-            log_step(step=attempt, action="empty_submission", reward=0.0, done=False, error="empty_code")
+            log_step(step=attempt, action="empty_submission",
+                     reward=0.0, done=False, error="empty_code")
             rewards.append(0.0)
             continue
 
         try:
-            result = env_step(env_url, fixed_code=fixed_code, explanation=agent_action.get("explanation"))
+            result = env_step(env_url, fixed_code=fixed_code,
+                              explanation=agent_action.get("explanation"))
         except Exception as e:
-            log_step(step=attempt, action="step_failed", reward=0.0, done=False, error=str(e)[:60])
+            log_step(step=attempt, action="step_failed",
+                     reward=0.0, done=False, error=str(e)[:60])
             rewards.append(0.0)
             continue
 
@@ -154,11 +211,13 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
         obs_r  = result.get("observation", {})
         last_feedback = obs_r.get("feedback", "")
 
-        log_step(step=attempt, action=f"fix_{difficulty}_attempt{attempt}", reward=reward, done=done, error=None)
+        log_step(step=attempt, action=f"fix_{difficulty}_attempt{attempt}",
+                 reward=reward, done=done, error=None)
         rewards.append(reward)
 
         if reward >= 1.0:
             success = True
+
         if done:
             break
 
@@ -168,7 +227,8 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
 def main():
     parser = argparse.ArgumentParser(description="Code Debug Environment Baseline Agent")
     parser.add_argument("--url", default=ENV_URL, help="Environment base URL")
-    parser.add_argument("--difficulty", default=None, choices=["easy", "medium", "hard", "all"])
+    parser.add_argument("--difficulty", default=None,
+                        choices=["easy", "medium", "hard", "all"])
     args = parser.parse_args()
     env_url = args.url.rstrip("/")
 
@@ -180,10 +240,12 @@ def main():
         print(f"# Health check failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    difficulties = ["easy", "medium", "hard"] if (args.difficulty in ("all", None)) else [args.difficulty]
+    difficulties = ["easy", "medium", "hard"] if (
+        args.difficulty in ("all", None)) else [args.difficulty]
 
     all_rewards = []
     all_successes = []
+
     for difficulty in difficulties:
         success, steps, rewards = run_episode(env_url, difficulty)
         all_rewards.extend(rewards)
@@ -191,7 +253,10 @@ def main():
         time.sleep(0.5)
 
     avg = round(sum(all_rewards) / len(all_rewards), 3) if all_rewards else 0.0
-    print(f"# SUMMARY: {sum(all_successes)}/{len(difficulties)} tasks solved | avg_reward={avg}", flush=True)
+    print(
+        f"# SUMMARY: {sum(all_successes)}/{len(difficulties)} tasks solved | avg_reward={avg}",
+        flush=True
+    )
 
 if __name__ == "__main__":
     main()
