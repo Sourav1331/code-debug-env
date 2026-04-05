@@ -137,14 +137,35 @@ class CodeDebugEnvironment(Environment):
             )
 
         # Grade the submission
-        grader = GRADERS[self._difficulty]
-        if self._difficulty == "hard":
-            reward, passed, total, feedback, _ = grader(
-                action.fixed_code, self._current_task, action.explanation
-            )
-        else:
-            reward, passed, total, feedback, _ = grader(
-                action.fixed_code, self._current_task
+        try:
+            grader = GRADERS[self._difficulty]
+            if self._difficulty == "hard":
+                reward, passed, total, feedback, _ = grader(
+                    action.fixed_code, self._current_task, action.explanation
+                )
+            else:
+                reward, passed, total, feedback, _ = grader(
+                    action.fixed_code, self._current_task
+                )
+        except Exception as e:
+            # Catch any grading errors and return helpful feedback
+            import traceback
+            error_detail = traceback.format_exc()
+            print(f"[ERROR] Grading failed for {self._current_task['task_id']}: {e}\n{error_detail}", flush=True)
+            
+            done = self._step_count >= MAX_STEPS
+            self._done = done
+            return DebugObservation(
+                task_id=self._current_task["task_id"],
+                difficulty=self._difficulty,
+                buggy_code=self._current_task["buggy_code"],
+                instructions=self._current_task["instructions"],
+                test_cases_description=self._current_task["test_cases_description"],
+                reward=0.0,
+                passed_tests=0,
+                total_tests=len(self._current_task.get("test_cases", [])),
+                feedback=f"❌ Grading Error: {type(e).__name__}: {str(e)[:100]}\nYour code caused an unexpected error during grading. Check for infinite loops, type errors, or invalid operations.",
+                done=done,
             )
 
         self._current_reward = reward

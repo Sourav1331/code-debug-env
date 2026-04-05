@@ -63,6 +63,7 @@ CRITICAL RULES:
 - Return the COMPLETE fixed function, not just the changed line
 - The fixed_code must be syntactically valid Python
 - For hard tasks, the explanation field MUST describe: what the bug was, why it caused failures, and how your fix resolves it
+- ALWAYS preserve the original function signature and structure
 
 Response format (strictly):
 {
@@ -74,9 +75,16 @@ DEBUGGING STRATEGY:
 1. Read the instructions carefully — they tell you exactly what type of bug exists
 2. Trace through the logic with the test inputs mentally
 3. For easy tasks: find the ONE wrong operator, value, or return statement
-4. For medium tasks: find BOTH bugs — usually one logic bug + one edge case
-5. For hard tasks: find the algorithmic flaw + write a clear explanation
+4. For medium tasks: find BOTH bugs — usually one logic bug + one edge case (swapped if/else, wrong operators)
+5. For hard tasks: find the algorithmic flaw (loop bounds, iteration order, missing checks) + write a clear explanation
 6. If your previous attempt failed, READ THE FEEDBACK — it shows exactly which inputs failed and what output was expected
+
+COMMON BUG PATTERNS:
+- Easy: Wrong comparison (==, !=, <, >), off-by-one errors, wrong return value
+- Medium: Swapped if/else logic, missing edge case check, two related operators wrong
+- Hard: Wrong iteration order (forward vs backward), missing visited set, incorrect DP initialization, boundary conditions
+
+IMPORTANT: Do not add imports, libraries, or change the algorithm unless absolutely necessary. Fix the bugs in the existing code.
 """
 
 def call_llm(buggy_code: str, instructions: str, difficulty: str,
@@ -106,13 +114,27 @@ Look at the Input, Expected, and Got values for each failing test.
 Try a completely different approach to fix the bug.
 """
 
+    if difficulty == "medium":
+        user_content += """
+MEDIUM TASK TIPS:
+- Look for EXACTLY TWO bugs (not one, not three)
+- Common patterns: swapped if/else branches, += vs =, wrong comparison operator
+- Check: Does the logic make sense? Are edge cases handled?
+- Example bugs: "if item in freq: freq[item] = 1" should be += 1, and "else: freq[item] = freq[item] + 1" should be = 1
+"""
+
     if difficulty == "hard":
         user_content += """
+HARD TASK TIPS:
+- Algorithmic bugs often involve: iteration order, loop bounds, missing state tracking
+- Common patterns: forward vs backward iteration (DP), missing visited set (graphs), wrong initialization
+- Your explanation MUST mention the specific algorithmic concept (e.g., "backward iteration", "visited set", "dp initialization")
+- Explanation quality affects 30% of your reward — be specific about what was wrong and why
+
 Remember: For hard tasks you MUST include a detailed explanation field describing:
-- What the algorithmic bug was
-- Why it caused incorrect results  
-- How your fix resolves it
-Explanation quality affects 30% of your reward.
+- What the algorithmic bug was (be specific: "inner loop iterates forward instead of backward")
+- Why it caused incorrect results (e.g., "allows items to be used multiple times")
+- How your fix resolves it (e.g., "reversing iteration ensures each item used once")
 """
 
     messages = [
