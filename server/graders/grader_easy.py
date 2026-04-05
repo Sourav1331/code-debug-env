@@ -1,6 +1,6 @@
 # server/graders/grader_easy.py
-# Grades easy tasks: 1 bug, 3 test cases.
-# Reward is proportional to tests passed (0.33, 0.66, 1.0).
+# Grades easy and medium tasks: runs code against test cases.
+# Reward is proportional to tests passed (0.33, 0.67, 1.0).
 
 import traceback
 import signal
@@ -8,37 +8,32 @@ from typing import Tuple, List
 
 
 def _timeout_handler(signum, frame):
-    raise TimeoutError("Code execution timed out (infinite loop or slow code)")
+    raise TimeoutError("Code timed out — likely infinite loop. Check for missing visited set in graph traversal.")
 
 
 def _run_code_safely(code: str, func_name: str, test_input):
-    """
-    Executes the submitted code in an isolated namespace and calls the function.
-    Returns (output, error_message).
-    Times out after 5 seconds to prevent infinite loops.
-    """
+    """Run submitted code safely with 5s timeout. Returns (result, error)."""
     namespace = {}
     try:
         exec(compile(code, "<submitted>", "exec"), namespace)
     except SyntaxError as e:
         return None, f"SyntaxError: {e}"
     except Exception as e:
-        return None, f"Compile error: {e}"
+        return None, f"CompileError: {e}"
 
     func = namespace.get(func_name)
     if func is None:
-        funcs = [v for v in namespace.values() if callable(v) and not v.__name__.startswith("_")]
+        funcs = [v for v in namespace.values() if callable(v) and not str(v.__name__).startswith("_")]
         if not funcs:
             return None, "No callable function found in submitted code."
         func = funcs[0]
 
     try:
-        # Set 5 second timeout to catch infinite loops
         try:
             signal.signal(signal.SIGALRM, _timeout_handler)
             signal.alarm(5)
         except (AttributeError, OSError):
-            pass  # Windows doesn't support SIGALRM, skip timeout
+            pass  # Windows has no SIGALRM
 
         if isinstance(test_input, list) and len(test_input) > 0 and isinstance(test_input[0], list):
             result = func(*test_input)
@@ -51,13 +46,14 @@ def _run_code_safely(code: str, func_name: str, test_input):
             result = func(test_input)
 
         try:
-            signal.alarm(0)  # Cancel timeout
+            signal.alarm(0)
         except (AttributeError, OSError):
             pass
 
         return result, None
+
     except TimeoutError as e:
-        return None, f"TimeoutError: {e}"
+        return None, str(e)
     except Exception as e:
         try:
             signal.alarm(0)
@@ -67,7 +63,6 @@ def _run_code_safely(code: str, func_name: str, test_input):
 
 
 def _extract_func_name(code: str) -> str:
-    """Extract the first function name defined in the code."""
     for line in code.splitlines():
         line = line.strip()
         if line.startswith("def "):
@@ -77,14 +72,8 @@ def _extract_func_name(code: str) -> str:
 
 def grade_easy(fixed_code: str, task: dict) -> Tuple[float, int, int, str, List[dict]]:
     """
-    Grade an easy task submission.
-
-    Returns:
-        reward (float): 0.0 to 1.0
-        passed (int): number of tests passed
-        total (int): total test cases
-        feedback (str): detailed feedback message
-        results (list): per-test results
+    Grade submission against test cases.
+    Returns: (reward, passed, total, feedback, results)
     """
     test_cases = task["test_cases"]
     total = len(test_cases)
@@ -99,21 +88,18 @@ def grade_easy(fixed_code: str, task: dict) -> Tuple[float, int, int, str, List[
         got, error = _run_code_safely(fixed_code, func_name, inp)
 
         if error:
-            results.append({"test_id": i + 1, "passed": False, "expected": str(expected), "got": f"ERROR: {error}"})
+            results.append({"test_id": i+1, "passed": False, "expected": str(expected), "got": f"ERROR"})
             feedback_lines.append(f"Test {i+1}: ❌ Error\n   Input    : {inp!r}\n   Expected : {expected!r}\n   Error    : {error}")
         elif got == expected:
             passed += 1
-            results.append({"test_id": i + 1, "passed": True, "expected": str(expected), "got": str(got)})
+            results.append({"test_id": i+1, "passed": True, "expected": str(expected), "got": str(got)})
             feedback_lines.append(f"Test {i+1}: ✅ Passed\n   Input    : {inp!r}\n   Expected : {expected!r}\n   Got      : {got!r}")
         else:
-            results.append({"test_id": i + 1, "passed": False, "expected": str(expected), "got": str(got)})
+            results.append({"test_id": i+1, "passed": False, "expected": str(expected), "got": str(got)})
             feedback_lines.append(f"Test {i+1}: ❌ Failed\n   Input    : {inp!r}\n   Expected : {expected!r}\n   Got      : {got!r}")
 
     reward = round(passed / total, 2)
     feedback = "\n".join(feedback_lines)
-    if passed == total:
-        feedback += "\n🎉 All tests passed! Full reward."
-    else:
-        feedback += f"\n{passed}/{total} tests passed. Review the failing cases."
+    feedback += "\n🎉 All tests passed! Full reward." if passed == total else f"\n{passed}/{total} tests passed."
 
     return reward, passed, total, feedback, results

@@ -1,9 +1,5 @@
-# tests/test_graders.py
-# Basic tests to verify all graders work correctly.
-# Run: python -m pytest tests/ -v
-
-import sys
-import os
+# tests/test_graders.py — Run: python -m pytest tests/ -v
+import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from server.graders.grader_easy import grade_easy
@@ -14,55 +10,40 @@ from server.tasks.task_medium import MEDIUM_TASKS
 from server.tasks.task_hard import HARD_TASKS
 
 
-def test_easy_tasks_count():
-    assert len(EASY_TASKS) == 15, f"Expected 15 easy tasks, got {len(EASY_TASKS)}"
+def test_task_counts():
+    assert len(EASY_TASKS) == 15
+    assert len(MEDIUM_TASKS) == 15
+    assert len(HARD_TASKS) == 15
 
+def test_easy_correct_scores_1():
+    for t in EASY_TASKS:
+        r, _, _, _, _ = grade_easy(t["fixed_code"], t)
+        assert r == 1.0, f"{t['task_id']} expected 1.0 got {r}"
 
-def test_medium_tasks_count():
-    assert len(MEDIUM_TASKS) == 15, f"Expected 15 medium tasks, got {len(MEDIUM_TASKS)}"
+def test_medium_correct_scores_1():
+    for t in MEDIUM_TASKS:
+        r, _, _, _, _ = grade_medium(t["fixed_code"], t)
+        assert r == 1.0, f"{t['task_id']} expected 1.0 got {r}"
 
+def test_hard_correct_scores_high():
+    for t in HARD_TASKS:
+        keywords = t.get("explanation_keywords", [])
+        r, _, _, _, _ = grade_hard(t["fixed_code"], t, " ".join(keywords))
+        assert r >= 0.9, f"{t['task_id']} expected >=0.9 got {r}"
 
-def test_hard_tasks_count():
-    assert len(HARD_TASKS) == 15, f"Expected 15 hard tasks, got {len(HARD_TASKS)}"
+def test_reward_in_range():
+    for t in EASY_TASKS:
+        r, _, _, _, _ = grade_easy(t["buggy_code"], t)
+        assert 0.0 <= r <= 1.0
 
-
-def test_easy_correct_fix_scores_1():
-    for task in EASY_TASKS:
-        reward, passed, total, _, _ = grade_easy(task["fixed_code"], task)
-        assert reward == 1.0, f"{task['task_id']} should score 1.0, got {reward}"
-
-
-def test_medium_correct_fix_scores_1():
-    for task in MEDIUM_TASKS:
-        reward, passed, total, _, _ = grade_medium(task["fixed_code"], task)
-        assert reward == 1.0, f"{task['task_id']} should score 1.0, got {reward}"
-
-
-def test_hard_correct_fix_scores_high():
-    for task in HARD_TASKS:
-        keywords = task.get("explanation_keywords", [])
-        explanation = " ".join(keywords)
-        reward, passed, total, _, _ = grade_hard(task["fixed_code"], task, explanation)
-        assert reward >= 0.9, f"{task['task_id']} should score >= 0.9, got {reward}"
-
-
-def test_reward_range():
-    for task in EASY_TASKS + MEDIUM_TASKS:
-        reward, _, _, _, _ = grade_easy(task["buggy_code"], task)
-        assert 0.0 <= reward <= 1.0, f"Reward out of range: {reward}"
-
+def test_buggy_scores_less_than_1():
+    for t in EASY_TASKS[:5]:
+        r, _, _, _, _ = grade_easy(t["buggy_code"], t)
+        assert r < 1.0, f"{t['task_id']} buggy code should not score 1.0"
 
 def test_empty_code_returns_zero():
-    task = EASY_TASKS[0]
-    reward, passed, total, feedback, _ = grade_easy("", task)
-    assert reward == 0.0
-
-
-def test_buggy_code_scores_less_than_1():
-    for task in EASY_TASKS[:5]:
-        reward, _, _, _, _ = grade_easy(task["buggy_code"], task)
-        assert reward < 1.0, f"{task['task_id']} buggy code should not score 1.0"
-
+    r, _, _, _, _ = grade_easy("", EASY_TASKS[0])
+    assert r == 0.0
 
 if __name__ == "__main__":
     import pytest

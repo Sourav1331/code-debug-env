@@ -1,262 +1,189 @@
 #!/usr/bin/env python3
-# inference.py — Code Debug Environment Baseline Agent
-# Log format strictly follows [START] [STEP] [END] as required by evaluator.
-#
-# Required env vars: API_BASE_URL, MODEL_NAME, HF_TOKEN
-# Usage:
-#   python inference.py
-#   python inference.py --url https://Souravdanyal-code-debug-env.hf.space
-#   python inference.py --difficulty easy
+"""
+inference.py - Code Debug Environment Baseline Agent
 
-import os
-import sys
-import json
-import time
-import argparse
-import requests
+Required env vars: API_BASE_URL, MODEL_NAME, HF_TOKEN
+Usage:
+  python inference.py
+  python inference.py --url https://Souravdanyal-code-debug-env.hf.space
+  python inference.py --difficulty easy
+
+STDOUT FORMAT (required by evaluator):
+  [START] task=<id> env=<benchmark> model=<model>
+  [STEP] step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
+  [END] success=<true|false> steps=<n> rewards=<r1,r2,...>
+"""
+
+import os, sys, json, time, argparse, requests
 from openai import OpenAI
 from typing import List, Optional
 
-# ─── Configuration ────────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-HF_TOKEN     = os.environ.get("HF_TOKEN", "")
-ENV_URL      = os.environ.get("ENV_URL", "http://localhost:7860")
+MODEL_NAME   = os.environ.get("MODEL_NAME",   "gpt-4o-mini")
+HF_TOKEN     = os.environ.get("HF_TOKEN",     "")
+ENV_URL      = os.environ.get("ENV_URL",      "http://localhost:7860")
 BENCHMARK    = "code-debug-env"
 MAX_STEPS    = 5
 
-# ─── OpenAI Client ───────────────────────────────────────────────────────────
 client = OpenAI(api_key=HF_TOKEN or "dummy", base_url=API_BASE_URL)
 
-# ─── Logging — STRICT FORMAT REQUIRED BY EVALUATOR ───────────────────────────
-def log_start(task_id: str, env: str, model: str) -> None:
+# ── Logging ───────────────────────────────────────────────────────────────────
+def log_start(task_id, env, model):
     print(f"[START] task={task_id} env={env} model={model}", flush=True)
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    error_val = error if error else "null"
-    done_val = str(done).lower()
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+def log_step(step, action, reward, done, error):
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error or 'null'}", flush=True)
 
-def log_end(success: bool, steps: int, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
+def log_end(success, steps, rewards):
+    print(f"[END] success={str(success).lower()} steps={steps} rewards={','.join(f'{r:.2f}' for r in rewards)}", flush=True)
 
-# ─── Environment Client ───────────────────────────────────────────────────────
-def env_reset(env_url: str, difficulty: str) -> dict:
-    resp = requests.post(f"{env_url}/reset", json={"difficulty": difficulty}, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+# ── Env client ────────────────────────────────────────────────────────────────
+def env_reset(url, difficulty):
+    r = requests.post(f"{url}/reset", json={"difficulty": difficulty}, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
-def env_step(env_url: str, fixed_code: str, explanation: str = None) -> dict:
+def env_step(url, fixed_code, explanation=None):
     payload = {"fixed_code": fixed_code}
     if explanation:
         payload["explanation"] = explanation
-    resp = requests.post(f"{env_url}/step", json=payload, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    r = requests.post(f"{url}/step", json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
-# ─── LLM Agent ───────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an expert Python debugging agent. Your job is to find and fix bugs in Python functions.
+# ── LLM ──────────────────────────────────────────────────────────────────────
+SYSTEM_PROMPT = """You are an expert Python debugging agent. Fix bugs in Python functions.
 
-CRITICAL RULES:
-- You MUST respond ONLY with valid JSON — no markdown, no explanation outside JSON
-- Return the COMPLETE fixed function, not just the changed line
-- The fixed_code must be syntactically valid Python
-- For hard tasks, the explanation field MUST describe: what the bug was, why it caused failures, and how your fix resolves it
-
-Response format (strictly):
+RESPONSE FORMAT — strictly JSON only, no markdown:
 {
-  "fixed_code": "<complete corrected Python function>",
-  "explanation": "<for hard tasks: detailed explanation of bug and fix>"
+  "fixed_code": "<complete corrected Python function including imports>",
+  "explanation": "<for hard tasks: explain the bug, root cause, and fix>"
 }
 
-DEBUGGING STRATEGY:
-1. Read the instructions carefully — they tell you exactly what type of bug exists
-2. Trace through the logic with the test inputs mentally
-3. For easy tasks: find the ONE wrong operator, value, or return statement
-4. For medium tasks: find BOTH bugs — usually one logic bug + one edge case
-5. For hard tasks: find the algorithmic flaw + write a clear explanation
-6. If your previous attempt failed, READ THE FEEDBACK — it shows exactly which inputs failed and what output was expected
+RULES:
+- Return COMPLETE function with all imports (e.g. from collections import deque)
+- fixed_code must be valid Python
+- For hard tasks explanation MUST mention the algorithmic concept
+
+COMMON BUGS:
+- Graph/BFS: missing visited set → infinite loop on cycles → add visited=set()
+- Knapsack DP: wrong loop order (forward=unbounded, backward=0/1 knapsack)
+- Binary search: wrong boundary → return high not low, or high=n//2 not n
+- Off-by-one: lst[2] should be lst[1] for second element
+- Wrong operator: + instead of -, * instead of /
+
+IF PREVIOUS ATTEMPT FAILED:
+- Read the Input/Expected/Got carefully
+- Try a completely different fix
+- For TimeoutError: you have an infinite loop, add a visited set
 """
 
-def call_llm(buggy_code: str, instructions: str, difficulty: str,
-             feedback: str = None, attempt: int = 1,
-             previous_code: str = None) -> dict:
+def call_llm(buggy_code, instructions, difficulty, feedback=None, attempt=1, prev_code=None):
+    content = f"Difficulty: {difficulty}\nInstructions: {instructions}\n\nBuggy code:\n```python\n{buggy_code}\n```\n"
 
-    user_content = f"""Task difficulty: {difficulty}
-Instructions: {instructions}
-
-Buggy code to fix:
-```python
-{buggy_code}
-```
-"""
     if feedback and attempt > 1:
-        user_content += f"""
-PREVIOUS ATTEMPT FAILED. Here is the feedback showing what went wrong:
-{feedback}
-
-Your previous fix was:
-```python
-{previous_code or 'unknown'}
-```
-
-IMPORTANT: Your previous fix did not work. Carefully analyze the feedback above.
-Look at the Input, Expected, and Got values for each failing test.
-Try a completely different approach to fix the bug.
-"""
+        content += f"\nPREVIOUS FIX FAILED. Feedback:\n{feedback}\n\nYour previous code:\n```python\n{prev_code or ''}\n```\nTry a different approach.\n"
 
     if difficulty == "hard":
-        user_content += """
-Remember: For hard tasks you MUST include a detailed explanation field describing:
-- What the algorithmic bug was
-- Why it caused incorrect results  
-- How your fix resolves it
-Explanation quality affects 30% of your reward.
-"""
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
-    ]
+        content += "\nIMPORTANT: Include a detailed explanation field mentioning the algorithmic concept.\n"
 
     try:
-        response = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=messages,
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": content}],
             max_tokens=1500,
-            temperature=0.2 if attempt == 1 else 0.5,
+            temperature=0.1 if attempt == 1 else 0.4,
         )
-        content = response.choices[0].message.content.strip()
-
-        # Strip markdown fences
-        if content.startswith("```"):
-            lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
-        # Strip json prefix
-        if content.startswith("json"):
-            content = content[4:].strip()
-
-        parsed = json.loads(content)
-        return {
-            "fixed_code": parsed.get("fixed_code", ""),
-            "explanation": parsed.get("explanation", None),
-        }
-    except json.JSONDecodeError:
-        # Try to extract code from malformed response
-        if "def " in content:
-            lines = content.split("\n")
-            code_lines = []
-            in_code = False
-            for line in lines:
-                if line.strip().startswith("def "):
-                    in_code = True
-                if in_code:
-                    code_lines.append(line)
-            if code_lines:
-                return {"fixed_code": "\n".join(code_lines), "explanation": None}
-        return {"fixed_code": buggy_code, "explanation": None}
+        raw = resp.choices[0].message.content.strip()
+        # Clean markdown fences
+        if "```" in raw:
+            raw = raw.split("```")[1] if raw.startswith("```") else raw
+            if raw.startswith("json\n"):
+                raw = raw[5:]
+        # Find JSON object
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start >= 0 and end > start:
+            raw = raw[start:end]
+        parsed = json.loads(raw)
+        return {"fixed_code": parsed.get("fixed_code", ""), "explanation": parsed.get("explanation")}
     except Exception as e:
-        print(f"# LLM call failed: {e}", file=sys.stderr)
+        print(f"# LLM error: {e}", file=sys.stderr)
         return {"fixed_code": buggy_code, "explanation": None}
 
-# ─── Main Episode Loop ────────────────────────────────────────────────────────
-def run_episode(env_url: str, difficulty: str) -> tuple:
-    reset_data = env_reset(env_url, difficulty)
-    obs = reset_data["observation"]
+# ── Episode ───────────────────────────────────────────────────────────────────
+def run_episode(env_url, difficulty):
+    data = env_reset(env_url, difficulty)
+    obs  = data["observation"]
     task_id      = obs["task_id"]
     buggy_code   = obs["buggy_code"]
     instructions = obs["instructions"]
 
-    log_start(task_id=task_id, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task_id, BENCHMARK, MODEL_NAME)
 
-    last_feedback = None
-    last_fixed_code = None
-    rewards: List[float] = []
-    steps_taken = 0
-    success = False
+    rewards, steps_taken, success = [], 0, False
+    last_feedback, last_code = None, None
 
     for attempt in range(1, MAX_STEPS + 1):
         steps_taken = attempt
+        action = call_llm(buggy_code, instructions, difficulty, last_feedback, attempt, last_code)
+        code = action["fixed_code"]
+        last_code = code
 
-        agent_action = call_llm(
-            buggy_code=buggy_code,
-            instructions=instructions,
-            difficulty=difficulty,
-            feedback=last_feedback,
-            attempt=attempt,
-            previous_code=last_fixed_code,
-        )
-
-        fixed_code = agent_action["fixed_code"]
-        last_fixed_code = fixed_code
-
-        if not fixed_code or not fixed_code.strip():
-            log_step(step=attempt, action="empty_submission",
-                     reward=0.0, done=False, error="empty_code")
+        if not code or not code.strip():
+            log_step(attempt, "empty_submission", 0.0, False, "empty_code")
             rewards.append(0.0)
             continue
 
         try:
-            result = env_step(env_url, fixed_code=fixed_code,
-                              explanation=agent_action.get("explanation"))
+            result = env_step(env_url, code, action.get("explanation"))
         except Exception as e:
-            log_step(step=attempt, action="step_failed",
-                     reward=0.0, done=False, error=str(e)[:60])
+            log_step(attempt, "step_failed", 0.0, False, str(e)[:60])
             rewards.append(0.0)
             continue
 
         reward = result.get("reward", 0.0)
         done   = result.get("done", False)
-        obs_r  = result.get("observation", {})
-        last_feedback = obs_r.get("feedback", "")
+        last_feedback = result.get("observation", {}).get("feedback", "")
 
-        log_step(step=attempt, action=f"fix_{difficulty}_attempt{attempt}",
-                 reward=reward, done=done, error=None)
+        log_step(attempt, f"fix_{difficulty}_attempt{attempt}", reward, done, None)
         rewards.append(reward)
 
         if reward >= 1.0:
             success = True
-
         if done:
             break
 
-    log_end(success=success, steps=steps_taken, rewards=rewards)
+    log_end(success, steps_taken, rewards)
     return success, steps_taken, rewards
 
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Code Debug Environment Baseline Agent")
-    parser.add_argument("--url", default=ENV_URL, help="Environment base URL")
-    parser.add_argument("--difficulty", default=None,
-                        choices=["easy", "medium", "hard", "all"])
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--url", default=ENV_URL)
+    parser.add_argument("--difficulty", default=None, choices=["easy","medium","hard","all"])
     args = parser.parse_args()
-    env_url = args.url.rstrip("/")
+    url = args.url.rstrip("/")
 
     try:
-        health = requests.get(f"{env_url}/health", timeout=10)
-        health.raise_for_status()
-        print(f"# Environment healthy at {env_url}", flush=True)
+        requests.get(f"{url}/health", timeout=10).raise_for_status()
+        print(f"# Environment healthy at {url}", flush=True)
     except Exception as e:
         print(f"# Health check failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    difficulties = ["easy", "medium", "hard"] if (
-        args.difficulty in ("all", None)) else [args.difficulty]
+    diffs = ["easy","medium","hard"] if args.difficulty in (None,"all") else [args.difficulty]
+    all_rewards, successes = [], []
 
-    all_rewards = []
-    all_successes = []
-
-    for difficulty in difficulties:
-        success, steps, rewards = run_episode(env_url, difficulty)
+    for d in diffs:
+        ok, _, rewards = run_episode(url, d)
         all_rewards.extend(rewards)
-        all_successes.append(success)
+        successes.append(ok)
         time.sleep(0.5)
 
-    avg = round(sum(all_rewards) / len(all_rewards), 3) if all_rewards else 0.0
-    print(
-        f"# SUMMARY: {sum(all_successes)}/{len(difficulties)} tasks solved | avg_reward={avg}",
-        flush=True
-    )
+    avg = round(sum(all_rewards)/len(all_rewards), 3) if all_rewards else 0.0
+    print(f"# SUMMARY: {sum(successes)}/{len(diffs)} tasks solved | avg_reward={avg}", flush=True)
 
 if __name__ == "__main__":
     main()
