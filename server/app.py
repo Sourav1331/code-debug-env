@@ -7,7 +7,8 @@ from pydantic import BaseModel
 import os
 
 from server.environment import CodeDebugEnvironment
-from models import DebugAction, DebugObservation, DebugState
+from models import DebugAction
+from fastapi.responses import HTMLResponse, Response
 
 app = FastAPI(
     title="Code Debug Environment",
@@ -27,6 +28,11 @@ app.add_middleware(
 
 env = CodeDebugEnvironment()
 
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    # Simple 1x1 transparent icon
+    return Response(content=b"", media_type="image/x-icon")
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
