@@ -10,6 +10,89 @@ def _score_explanation(explanation: Optional[str], keywords: List[str]) -> Tuple
     """
     Scores the explanation by checking for required conceptual keywords.
     Returns (score 0.0-1.0, feedback string).
+
+    Scoring:
+    - No explanation → 0.0
+    - At least 1 keyword hit → partial credit
+    - Half or more keywords → full credit 1.0
+    """
+    if not explanation or len(explanation.strip()) < 10:
+        return 0.0, "❌ No explanation provided. Hard tasks require an explanation field."
+
+    explanation_lower = explanation.lower()
+    hits = [kw for kw in keywords if kw.lower() in explanation_lower]
+
+    if not keywords:
+        # No keywords defined — give full credit for any explanation
+        score = 1.0 if len(explanation.strip()) > 20 else 0.5
+    else:
+        # Need at least 1 hit for partial, half for full
+        needed_for_full = max(1, len(keywords) // 2)
+        if len(hits) == 0:
+            score = 0.0
+        elif len(hits) >= needed_for_full:
+            score = 1.0
+        else:
+            # Partial credit proportional to hits
+            score = round(len(hits) / needed_for_full, 2)
+
+    if score == 1.0:
+        feedback = f"✅ Explanation excellent! Mentioned key concepts: {', '.join(hits)}"
+    elif score > 0:
+        missing = [kw for kw in keywords if kw.lower() not in explanation_lower]
+        feedback = (
+            f"⚠️ Partial explanation (score={score}). Mentioned: {', '.join(hits) if hits else 'none'}. "
+            f"Consider also discussing: {', '.join(missing[:3])}"
+        )
+    else:
+        feedback = (
+            f"❌ Explanation missing key concepts. "
+            f"Try to explain: {', '.join(keywords[:3])} in your analysis."
+        )
+
+    return round(score, 2), feedback
+
+
+def grade_hard(fixed_code: str, task: dict, explanation: Optional[str] = None) -> Tuple[float, int, int, str, List[dict]]:
+    """
+    Grade a hard task submission.
+    Reward = 0.7 * test_score + 0.3 * explanation_score
+
+    Returns:
+        reward (float): 0.0 to 1.0
+        passed (int)
+        total (int)
+        feedback (str)
+        results (list)
+    """
+    # Grade code using easy grader (same test execution logic)
+    test_reward, passed, total, code_feedback, results = grade_easy(fixed_code, task)
+
+    # Grade explanation
+    keywords = task.get("explanation_keywords", [])
+    exp_score, exp_feedback = _score_explanation(explanation, keywords)
+
+    # Combined reward
+    final_reward = round(0.7 * test_reward + 0.3 * exp_score, 2)
+
+    feedback = (
+        f"--- Code Score (70% weight): {test_reward:.2f} ---\n"
+        f"{code_feedback}\n\n"
+        f"--- Explanation Score (30% weight): {exp_score:.2f} ---\n"
+        f"{exp_feedback}\n\n"
+        f"=== Final Reward: {final_reward:.2f} ==="
+    )
+
+    if passed < total and not explanation:
+        feedback += "\n💡 Tip: Fix the code bugs AND provide a clear explanation for max reward."
+
+    if passed == total and exp_score < 1.0:
+        feedback += f"\n💡 Tip: Your code is correct! Improve explanation by mentioning: {', '.join(keywords[:3])}"
+
+    return final_reward, passed, total, feedback, results
+    """
+    Scores the explanation by checking for required conceptual keywords.
+    Returns (score 0.0-1.0, feedback string).
     """
     if not explanation or len(explanation.strip()) < 10:
         return 0.0, "❌ No explanation provided. Hard tasks require an explanation field."
