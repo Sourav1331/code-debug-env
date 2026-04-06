@@ -96,17 +96,42 @@ def call_llm(buggy_code, instructions, difficulty, feedback=None, attempt=1, pre
             temperature=0.1 if attempt == 1 else 0.4,
         )
         raw = resp.choices[0].message.content.strip()
-        # Clean markdown fences
-        if "```" in raw:
-            raw = raw.split("```")[1] if raw.startswith("```") else raw
-            if raw.startswith("json\n"):
-                raw = raw[5:]
-        # Find JSON object
+
+        # Remove markdown fences
+        if "```json" in raw:
+            raw = raw.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw:
+            raw = raw.split("```")[1].split("```")[0].strip()
+            if raw.startswith("json"):
+                raw = raw[4:].strip()
+
+        # Find JSON object boundaries
         start = raw.find("{")
         end = raw.rfind("}") + 1
         if start >= 0 and end > start:
             raw = raw[start:end]
-        parsed = json.loads(raw)
+
+        # Try direct parse first
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            # Fix control characters by replacing literal newlines inside strings
+            import re
+            # Replace actual newlines within JSON string values with \n escape
+            raw = re.sub(r'(?<!\\)\n', r'\\n', raw)
+            raw = re.sub(r'(?<!\\)\t', r'\\t', raw)
+            raw = re.sub(r'(?<!\\)\r', r'\\r', raw)
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                # Last resort: extract fixed_code manually using regex
+                code_match = re.search(r'"fixed_code"\s*:\s*"(.*?)"(?=\s*[,}])', raw, re.DOTALL)
+                exp_match  = re.search(r'"explanation"\s*:\s*"(.*?)"(?=\s*[,}])', raw, re.DOTALL)
+                if code_match:
+                    code = code_match.group(1).encode().decode('unicode_escape') if '\\n' in code_match.group(1) else code_match.group(1)
+                    return {"fixed_code": code, "explanation": exp_match.group(1) if exp_match else None}
+                raise
+
         return {"fixed_code": parsed.get("fixed_code", ""), "explanation": parsed.get("explanation")}
     except Exception as e:
         print(f"# LLM error: {e}", file=sys.stderr)
