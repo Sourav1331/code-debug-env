@@ -64,29 +64,40 @@ RESPONSE FORMAT — strictly JSON only, no markdown:
 RULES:
 - Return COMPLETE function with all imports (e.g. from collections import deque)
 - fixed_code must be valid Python
-- For hard tasks explanation MUST mention the algorithmic concept
+- For hard tasks explanation MUST mention the algorithmic concept listed in instructions
 
-COMMON BUGS:
-- Graph/BFS: missing visited set → infinite loop on cycles → add visited=set()
-- Knapsack DP: wrong loop order (forward=unbounded, backward=0/1 knapsack)
-- Binary search: wrong boundary → return high not low, or high=n//2 not n
+COMMON BUG PATTERNS:
+- List rotation RIGHT by k: correct is lst[-k:] + lst[:-k]  NOT lst[k:] + lst[:k]
+- List rotation LEFT by k: correct is lst[k:] + lst[:k]
+- Graph/BFS missing visited set → infinite loop → add visited=set()
+- 0/1 Knapsack: must iterate BACKWARD: range(capacity, weight-1, -1) not forward
+- Binary search wrong boundary: return high not low, or high=n//2
 - Off-by-one: lst[2] should be lst[1] for second element
-- Wrong operator: + instead of -, * instead of /
+- Wrong operator: complement = target - n  NOT target + n
 
-IF PREVIOUS ATTEMPT FAILED:
-- Read the Input/Expected/Got carefully
-- Try a completely different fix
-- For TimeoutError: you have an infinite loop, add a visited set
+FOR HARD TASKS — explanation MUST include words from the instructions hint.
+Example: if instructions say "mention: iteration order" then write about iteration order.
+Example: if instructions say "mention: visited" then write about visited set.
 """
 
 def call_llm(buggy_code, instructions, difficulty, feedback=None, attempt=1, prev_code=None):
     content = f"Difficulty: {difficulty}\nInstructions: {instructions}\n\nBuggy code:\n```python\n{buggy_code}\n```\n"
 
     if feedback and attempt > 1:
-        content += f"\nPREVIOUS FIX FAILED. Feedback:\n{feedback}\n\nYour previous code:\n```python\n{prev_code or ''}\n```\nTry a different approach.\n"
+        content += f"\nPREVIOUS FIX FAILED. Feedback:\n{feedback}\n\nYour previous code:\n```python\n{prev_code or ''}\n```\n"
+        content += "IMPORTANT: Your fix did not work. Look at the Expected vs Got values carefully.\n"
+        content += "- If Got is a LEFT rotation but Expected is RIGHT: use lst[-k:] + lst[:-k]\n"
+        content += "- If you see TimeoutError: add visited=set() for graph traversal\n"
+        content += "- Try a COMPLETELY DIFFERENT approach.\n"
 
     if difficulty == "hard":
-        content += "\nIMPORTANT: Include a detailed explanation field mentioning the algorithmic concept.\n"
+        # Extract keyword hints from instructions (e.g. "mention: visited, queue")
+        import re
+        hint_match = re.search(r'[Mm]ention[:\s]+([^.]+)', instructions)
+        if hint_match:
+            hints = hint_match.group(1).strip()
+            content += f"\nFor your explanation, you MUST mention these concepts: {hints}\n"
+        content += "Include a detailed explanation field — it counts for 30% of your reward.\n"
 
     try:
         resp = client.chat.completions.create(
