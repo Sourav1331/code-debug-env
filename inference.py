@@ -8,18 +8,18 @@ Usage:
   python inference.py --url https://Souravdanyal-code-debug-env.hf.space
   python inference.py --difficulty easy
 
-STDOUT FORMAT (required by evaluator):
+STDOUT FORMAT (strictly required by evaluator):
   [START] task=<id> env=<benchmark> model=<model>
   [STEP] step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
-  [END] success=<true|false> steps=<n> rewards=<r1,r2,...>
+  [END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
 """
 
-import os, sys, json, time, argparse, requests
+import os, sys, json, time, argparse, requests, re
 from openai import OpenAI
 from typing import List, Optional
 
 # ── Config ────────────────────────────────────────────────────────────────────
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME",   "llama-3.1-8b-instant")
 HF_TOKEN     = os.environ.get("HF_TOKEN",     "")
 ENV_URL      = os.environ.get("ENV_URL",      "http://localhost:7860")
@@ -28,7 +28,7 @@ MAX_STEPS    = 5
 
 client = OpenAI(api_key=HF_TOKEN or "dummy", base_url=API_BASE_URL)
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# ── Logging — STRICT FORMAT ───────────────────────────────────────────────────
 def log_start(task_id, env, model):
     print(f"[START] task={task_id} env={env} model={model}", flush=True)
 
@@ -53,100 +53,115 @@ def env_step(url, fixed_code, explanation=None):
     return r.json()
 
 # ── LLM ──────────────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an expert Python debugging agent. Fix bugs in Python functions.
+SYSTEM_PROMPT = """You are an expert Python debugging agent.
 
-RESPONSE FORMAT — strictly JSON only, no markdown:
-{
-  "fixed_code": "<complete corrected Python function including imports>",
-  "explanation": "<for hard tasks: explain the bug, root cause, and fix>"
-}
+RESPONSE FORMAT — JSON only, no markdown fences, no extra text:
+{"fixed_code": "<complete Python function with all imports>", "explanation": "<for hard tasks only>"}
 
 RULES:
-- Return COMPLETE function with all imports (e.g. from collections import deque)
-- fixed_code must be valid Python
-- For hard tasks explanation MUST mention the algorithmic concept listed in instructions
+- Return the COMPLETE function including all imports (e.g. from collections import deque)
+- fixed_code must be valid, executable Python
+- For hard tasks: explanation MUST mention the algorithmic concepts from the instructions
 
-COMMON BUG PATTERNS:
-- List rotation RIGHT by k: correct is lst[-k:] + lst[:-k]  NOT lst[k:] + lst[:k]
-- List rotation LEFT by k: correct is lst[k:] + lst[:k]
-- Graph/BFS missing visited set → infinite loop → add visited=set()
-- 0/1 Knapsack: must iterate BACKWARD: range(capacity, weight-1, -1) not forward
-- Binary search wrong boundary: return high not low, or high=n//2
-- Off-by-one: lst[2] should be lst[1] for second element
-- Wrong operator: complement = target - n  NOT target + n
+COMMON BUG PATTERNS — memorize these:
+- RIGHT rotate list by k: lst[-k:] + lst[:-k]   (NOT lst[k:] + lst[:k] which is LEFT rotate)
+- LEFT rotate list by k: lst[k:] + lst[:k]
+- BFS/graph missing visited: add visited=set([start]) before queue, check before appending
+- 0/1 Knapsack: iterate BACKWARD range(capacity, weight-1, -1) NOT forward
+- Binary search boundary: often return high not low, or initial high=n//2 not n
+- Wrong operator: target-n not target+n for complement
+- Off-by-one: lst[1] for second element not lst[2]
 
-FOR HARD TASKS — explanation MUST include words from the instructions hint.
-Example: if instructions say "mention: iteration order" then write about iteration order.
-Example: if instructions say "mention: visited" then write about visited set.
+IMPORTANT: If feedback shows TimeoutError → you have infinite loop → add visited set.
+IMPORTANT: If Expected shows right-rotated list → use lst[-k:] + lst[:-k].
 """
+
+def _parse_llm_response(raw: str, buggy_code: str) -> dict:
+    """Robustly parse LLM response handling control chars and malformed JSON."""
+    # Remove markdown fences
+    if "```json" in raw:
+        raw = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw:
+        parts = raw.split("```")
+        if len(parts) >= 2:
+            raw = parts[1].strip()
+            if raw.startswith("json"):
+                raw = raw[4:].strip()
+
+    # Find JSON boundaries
+    start = raw.find("{")
+    end = raw.rfind("}") + 1
+    if start >= 0 and end > start:
+        raw = raw[start:end]
+
+    # Try direct parse
+    try:
+        parsed = json.loads(raw)
+        return {"fixed_code": parsed.get("fixed_code", ""), "explanation": parsed.get("explanation")}
+    except json.JSONDecodeError:
+        pass
+
+    # Fix control characters (literal newlines inside JSON strings)
+    try:
+        fixed = re.sub(r'(?<!\\)\n', r'\\n', raw)
+        fixed = re.sub(r'(?<!\\)\t', r'\\t', raw)
+        fixed = re.sub(r'(?<!\\)\r', r'\\r', raw)
+        parsed = json.loads(fixed)
+        # Unescape the fixed_code back to real newlines
+        code = parsed.get("fixed_code", "")
+        if "\\n" in code:
+            code = code.replace("\\n", "\n").replace("\\t", "\t")
+        return {"fixed_code": code, "explanation": parsed.get("explanation")}
+    except json.JSONDecodeError:
+        pass
+
+    # Last resort: regex extraction
+    code_match = re.search(r'"fixed_code"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[,}]', raw, re.DOTALL)
+    exp_match  = re.search(r'"explanation"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[,}]', raw, re.DOTALL)
+
+    if code_match:
+        code = code_match.group(1).replace("\\n", "\n").replace("\\t", "\t")
+        exp = exp_match.group(1).replace("\\n", "\n") if exp_match else None
+        return {"fixed_code": code, "explanation": exp}
+
+    # Complete fallback
+    return {"fixed_code": buggy_code, "explanation": None}
+
 
 def call_llm(buggy_code, instructions, difficulty, feedback=None, attempt=1, prev_code=None):
     content = f"Difficulty: {difficulty}\nInstructions: {instructions}\n\nBuggy code:\n```python\n{buggy_code}\n```\n"
 
     if feedback and attempt > 1:
         content += f"\nPREVIOUS FIX FAILED. Feedback:\n{feedback}\n\nYour previous code:\n```python\n{prev_code or ''}\n```\n"
-        content += "IMPORTANT: Your fix did not work. Look at the Expected vs Got values carefully.\n"
-        content += "- If Got is a LEFT rotation but Expected is RIGHT: use lst[-k:] + lst[:-k]\n"
-        content += "- If you see TimeoutError: add visited=set() for graph traversal\n"
-        content += "- Try a COMPLETELY DIFFERENT approach.\n"
+        content += "ANALYZE THE FEEDBACK CAREFULLY:\n"
+        content += "- Look at Input/Expected/Got for each failing test\n"
+        content += "- If Got shows wrong rotation direction: use lst[-k:] + lst[:-k] for RIGHT rotate\n"
+        content += "- If TimeoutError: add visited=set([start]) before queue in graph code\n"
+        content += "- Try a COMPLETELY DIFFERENT fix.\n"
 
     if difficulty == "hard":
-        # Extract keyword hints from instructions (e.g. "mention: visited, queue")
-        import re
-        hint_match = re.search(r'[Mm]ention[:\s]+([^.]+)', instructions)
+        hint_match = re.search(r'[Mm]ention[:\s]+([^.]+?)(?:\.|$)', instructions)
         if hint_match:
             hints = hint_match.group(1).strip()
-            content += f"\nFor your explanation, you MUST mention these concepts: {hints}\n"
-        content += "Include a detailed explanation field — it counts for 30% of your reward.\n"
+            content += f"\nFor explanation, you MUST mention these concepts: {hints}\n"
+        content += "Explanation counts for 30% of reward — make it detailed and specific.\n"
 
     try:
         resp = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": content}],
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": content}
+            ],
             max_tokens=1500,
             temperature=0.1 if attempt == 1 else 0.4,
         )
         raw = resp.choices[0].message.content.strip()
-
-        # Remove markdown fences
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-            if raw.startswith("json"):
-                raw = raw[4:].strip()
-
-        # Find JSON object boundaries
-        start = raw.find("{")
-        end = raw.rfind("}") + 1
-        if start >= 0 and end > start:
-            raw = raw[start:end]
-
-        # Try direct parse first
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            # Fix control characters by replacing literal newlines inside strings
-            import re
-            # Replace actual newlines within JSON string values with \n escape
-            raw = re.sub(r'(?<!\\)\n', r'\\n', raw)
-            raw = re.sub(r'(?<!\\)\t', r'\\t', raw)
-            raw = re.sub(r'(?<!\\)\r', r'\\r', raw)
-            try:
-                parsed = json.loads(raw)
-            except json.JSONDecodeError:
-                # Last resort: extract fixed_code manually using regex
-                code_match = re.search(r'"fixed_code"\s*:\s*"(.*?)"(?=\s*[,}])', raw, re.DOTALL)
-                exp_match  = re.search(r'"explanation"\s*:\s*"(.*?)"(?=\s*[,}])', raw, re.DOTALL)
-                if code_match:
-                    code = code_match.group(1).encode().decode('unicode_escape') if '\\n' in code_match.group(1) else code_match.group(1)
-                    return {"fixed_code": code, "explanation": exp_match.group(1) if exp_match else None}
-                raise
-
-        return {"fixed_code": parsed.get("fixed_code", ""), "explanation": parsed.get("explanation")}
+        return _parse_llm_response(raw, buggy_code)
     except Exception as e:
         print(f"# LLM error: {e}", file=sys.stderr)
         return {"fixed_code": buggy_code, "explanation": None}
+
 
 # ── Episode ───────────────────────────────────────────────────────────────────
 def run_episode(env_url, difficulty):
@@ -181,7 +196,8 @@ def run_episode(env_url, difficulty):
 
         reward = result.get("reward", 0.0)
         done   = result.get("done", False)
-        last_feedback = result.get("observation", {}).get("feedback", "")
+        obs_r  = result.get("observation", {})
+        last_feedback = obs_r.get("feedback", "")
 
         log_step(attempt, f"fix_{difficulty}_attempt{attempt}", reward, done, None)
         rewards.append(reward)
@@ -194,9 +210,10 @@ def run_episode(env_url, difficulty):
     log_end(success, steps_taken, rewards)
     return success, steps_taken, rewards
 
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Code Debug Environment Baseline Agent")
     parser.add_argument("--url", default=ENV_URL)
     parser.add_argument("--difficulty", default=None, choices=["easy","medium","hard","all"])
     args = parser.parse_args()

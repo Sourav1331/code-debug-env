@@ -2,12 +2,11 @@ spec_version: 1
 name: code-debug-env
 type: typed
 description: >
-  A real-world RL environment where an LLM agent diagnoses and fixes
-  buggy Python code across three difficulty levels (easy, medium, hard).
-  Tasks are drawn from real-world domains: data processing, string algorithms,
-  API validation, sorting, dynamic programming, and graph algorithms.
-  Rewards are partial and proportional to test cases passed, with bonuses
-  for correct explanations on hard tasks.
+  A real-world RL environment where an LLM agent diagnoses and fixes buggy Python
+  code across three difficulty levels (easy, medium, hard). Tasks cover real-world
+  domains: data processing, string algorithms, API validation, sorting, dynamic
+  programming, and graph algorithms. Rewards are partial and proportional to test
+  cases passed, with bonuses for correct explanations on hard tasks.
 
 version: 1.0.0
 author: Souravdanyal
@@ -19,6 +18,7 @@ tags:
   - openenv
   - llm-agent
   - software-engineering
+  - real-world
 
 runtime:
   type: docker
@@ -51,7 +51,7 @@ tasks:
     num_tasks: 15
 
   - id: hard
-    description: "Fix an algorithmic bug AND provide a correct explanation of the root cause"
+    description: "Fix an algorithmic bug AND provide a correct explanation of root cause"
     difficulty: hard
     max_steps: 5
     reward_range: [0.0, 1.0]
@@ -67,47 +67,46 @@ action_space:
     fixed_code:
       type: string
       required: true
-      description: "Complete corrected Python function as a string. Must be valid Python."
+      description: "Complete corrected Python function. Must be valid Python including imports."
     explanation:
       type: string
       required: false
-      description: "Required for hard tasks. Explain the bug, root cause, and why fix is correct."
+      description: "Required for hard tasks. Explain the bug, root cause, and fix."
 
 observation_space:
   type: dict
-  description: "Environment observation returned after reset() and step()"
+  description: "Returned after reset() and step()"
   fields:
     task_id:
       type: string
-      description: "Unique identifier for the current task instance (e.g. easy_003)"
+      description: "Unique task identifier e.g. easy_003"
     difficulty:
       type: enum
       values: [easy, medium, hard]
-      description: "Task difficulty level"
     buggy_code:
       type: string
-      description: "The buggy Python function the agent must fix"
+      description: "The buggy Python function to fix"
     instructions:
       type: string
-      description: "Natural language description of what is wrong and what to fix"
+      description: "Natural language description of what is wrong"
     test_cases_description:
       type: string
-      description: "Description of what the test cases check"
+      description: "What the test cases check"
     reward:
       type: float
-      description: "Score from 0.0 to 1.0 for this step (null on reset)"
+      description: "Score 0.0-1.0 (null on reset)"
     passed_tests:
       type: integer
-      description: "Number of test cases passed (null on reset)"
+      description: "Test cases passed (null on reset)"
     total_tests:
       type: integer
-      description: "Total number of test cases (always 3)"
+      description: "Total test cases (always 3)"
     feedback:
       type: string
-      description: "Detailed per-test feedback showing input, expected, and got values"
+      description: "Per-test feedback showing Input, Expected, Got"
     done:
       type: boolean
-      description: "True when episode is complete (perfect score or max steps reached)"
+      description: "True when episode complete"
 
 api:
   reset: /reset
