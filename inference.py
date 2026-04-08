@@ -2,7 +2,7 @@
 """
 inference.py - Code Debug Environment Baseline Agent
 
-Required env vars: API_BASE_URL, MODEL_NAME, HF_TOKEN
+Required env vars: API_BASE_URL, MODEL_NAME, and one of API_KEY/GROQ_API_KEY/OPENAI_API_KEY/HF_TOKEN
 Usage:
   python inference.py
   python inference.py --url https://Souravdanyal-code-debug-env.hf.space
@@ -18,16 +18,28 @@ import os, sys, json, time, argparse, requests, re
 from openai import OpenAI
 from typing import List, Optional
 
+
+def _read_env(*names: str) -> tuple[str, Optional[str]]:
+    """Return first non-empty env value and the matched variable name."""
+    for name in names:
+        for candidate in (name, name.lower()):
+            val = os.environ.get(candidate)
+            if val and val.strip():
+                return val.strip(), candidate
+    return "", None
+
 # ── Config ────────────────────────────────────────────────────────────────────
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME",   "llama-3.1-8b-instant")
-HF_TOKEN     = os.environ.get("HF_TOKEN",     "")
+
+# Accept common provider key names, including lowercase variants.
+API_KEY, API_KEY_SOURCE = _read_env("API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "HF_TOKEN")
 ENV_URL      = os.environ.get("ENV_URL",      "http://localhost:7860")
 BENCHMARK    = "code-debug-env"
 MAX_STEPS    = 5
 SUCCESS_SCORE_THRESHOLD = 0.5
 
-client = OpenAI(api_key=HF_TOKEN or "dummy", base_url=API_BASE_URL)
+client = OpenAI(api_key=API_KEY or "dummy", base_url=API_BASE_URL)
 
 # ── Logging — STRICT FORMAT ───────────────────────────────────────────────────
 def log_start(task_id: str, env: str, model: str) -> None:
@@ -247,6 +259,15 @@ def main():
     parser.add_argument("--difficulty", default=None, choices=["easy", "medium", "hard", "all"])
     args = parser.parse_args()
     url  = args.url.rstrip("/")
+
+    if not API_KEY:
+        print(
+            "# Missing API key. Set one of: API_KEY, GROQ_API_KEY, OPENAI_API_KEY, HF_TOKEN (or lowercase variants)",
+            file=sys.stderr,
+            flush=True,
+        )
+        sys.exit(1)
+    print(f"# Using API key from {API_KEY_SOURCE}", file=sys.stderr, flush=True)
 
     # Health check
     try:
