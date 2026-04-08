@@ -157,11 +157,13 @@ def run_checks(base_url: str):
         has_step = "[STEP] step=" in content
         has_end = "[END] success=" in content
         avoids_json_logs = "print(json.dumps(log_entry)" not in content
+        rewards_csv = "rewards=[" not in content
         check("inference.py emits [START] logs", has_start)
         check("inference.py emits [STEP] logs", has_step)
         check("inference.py emits [END] logs", has_end)
         check("inference.py avoids JSON log dict dumps", avoids_json_logs)
-        all_passed &= has_start and has_step and has_end and avoids_json_logs
+        check("inference.py emits CSV rewards in [END]", rewards_csv)
+        all_passed &= has_start and has_step and has_end and avoids_json_logs and rewards_csv
     except Exception as e:
         check("inference.py log format", False, str(e))
         all_passed = False

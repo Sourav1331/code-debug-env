@@ -11,7 +11,7 @@ Usage:
 STDOUT FORMAT (strictly required by evaluator - plaintext):
   [START] task=<id> env=<benchmark> model=<model>
   [STEP] step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
-  [END] success=<true|false> steps=<n> score=<0.000> rewards=[<r1>,<r2>,...]
+  [END] success=<true|false> steps=<n> score=<0.00> rewards=<r1,r2,...>
 """
 
 import os, sys, json, time, argparse, requests, re
@@ -31,6 +31,9 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-8b-instant")
 HF_TOKEN = os.getenv("HF_TOKEN")
 HF_TOKEN_SOURCE = "HF_TOKEN"
+if not HF_TOKEN:
+    HF_TOKEN = os.getenv("API_KEY")
+    HF_TOKEN_SOURCE = "API_KEY"
 if not HF_TOKEN:
     HF_TOKEN = os.getenv("hf_token")
     HF_TOKEN_SOURCE = "hf_token"
@@ -55,12 +58,12 @@ def _normalize_token(value: str) -> str:
 def _format_error(error: Optional[str]) -> str:
     if error is None:
         return "null"
-    cleaned = _normalize_token(error)
-    return cleaned if cleaned else "null"
+    text = str(error).replace("\r", "\\r").replace("\n", "\\n")
+    return text if text else "null"
 
 
 def _format_rewards(rewards: List[float]) -> str:
-    return "[" + ",".join(f"{round(r, 2):.2f}" for r in rewards) + "]"
+    return ",".join(f"{round(r, 2):.2f}" for r in rewards)
 
 
 def log_start(task_id: str, env: str, model: str) -> None:
@@ -78,7 +81,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     print(
-        f"[END] success={_format_bool(success)} steps={steps} score={round(score, 3):.3f} "
+        f"[END] success={_format_bool(success)} steps={steps} score={round(score, 2):.2f} "
         f"rewards={_format_rewards(rewards)}",
         flush=True,
     )
@@ -241,43 +244,43 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
     last_feedback        = None
     last_code            = None
 
-    for attempt in range(1, MAX_STEPS + 1):
-        steps_taken = attempt
-        action      = call_llm(buggy_code, instructions, difficulty, last_feedback, attempt, last_code)
-        code        = action["fixed_code"]
-        last_code   = code
+    try:
+        for attempt in range(1, MAX_STEPS + 1):
+            steps_taken = attempt
+            action      = call_llm(buggy_code, instructions, difficulty, last_feedback, attempt, last_code)
+            code        = action.get("fixed_code") or ""
+            last_code   = code
 
-        if not code or not code.strip():
-            log_step(attempt, "empty_submission", 0.0, False, "empty_code")
-            rewards.append(0.0)
-            continue
+            reward = 0.0
+            done = False
+            step_error: Optional[str] = None
+            try:
+                result = env_step(env_url, code, action.get("explanation"))
+                reward = result.get("reward", 0.0)
+                done = result.get("done", False)
+                obs_r = result.get("observation", {})
+                if isinstance(obs_r, dict):
+                    last_feedback = obs_r.get("feedback", "")
+                    step_error = obs_r.get("last_action_error")
+                    if step_error is None:
+                        step_error = obs_r.get("error")
+            except Exception as e:
+                step_error = str(e)
 
-        try:
-            result = env_step(env_url, code, action.get("explanation"))
-        except Exception as e:
-            log_step(attempt, "step_failed", 0.0, False, str(e)[:60])
-            rewards.append(0.0)
-            continue
+            log_step(attempt, f"fix_{difficulty}_attempt{attempt}", reward, done, step_error)
+            rewards.append(reward)
 
-        reward        = result.get("reward", 0.0)
-        done          = result.get("done", False)
-        obs_r         = result.get("observation", {})
-        last_feedback = obs_r.get("feedback", "")
+            if reward >= 1.0:
+                success = True
+            if done:
+                break
+    finally:
+        # Compute normalized score for this episode and always emit [END].
+        score = max(rewards) if rewards else 0.0
+        score = min(max(score, 0.0), 1.0)
+        success = success or (score >= SUCCESS_SCORE_THRESHOLD)
+        log_end(success, steps_taken, score, rewards)
 
-        log_step(attempt, f"fix_{difficulty}_attempt{attempt}", reward, done, None)
-        rewards.append(reward)
-
-        if reward >= 1.0:
-            success = True
-        if done:
-            break
-
-    # Compute normalised score for this episode (best reward achieved)
-    score = max(rewards) if rewards else 0.0
-    score = min(max(score, 0.0), 1.0)
-    success = success or (score >= SUCCESS_SCORE_THRESHOLD)
-
-    log_end(success, steps_taken, score, rewards)
     return success, steps_taken, rewards
 
 
@@ -291,7 +294,7 @@ def main():
 
     if not HF_TOKEN:
         print(
-            "# Missing HF_TOKEN (or lowercase hf_token).",
+            "# Missing API key. Set HF_TOKEN (or API_KEY / lowercase hf_token).",
             file=sys.stderr,
             flush=True,
         )
