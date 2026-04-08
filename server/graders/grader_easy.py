@@ -98,7 +98,15 @@ def grade_easy(fixed_code: str, task: dict) -> Tuple[float, int, int, str, List[
             results.append({"test_id": i+1, "passed": False, "expected": str(expected), "got": str(got)})
             feedback_lines.append(f"Test {i+1}: ❌ Failed\n   Input    : {inp!r}\n   Expected : {expected!r}\n   Got      : {got!r}")
 
-    reward = round(passed / total, 2)
+    reward = passed / total
+
+    # ensure strict (0,1) range
+    if reward <= 0:
+        reward = 0.01
+    elif reward >= 1:
+        reward = 0.99
+
+    reward = round(reward, 2)
     feedback = "\n".join(feedback_lines)
     feedback += "\n🎉 All tests passed! Full reward." if passed == total else f"\n{passed}/{total} tests passed."
 

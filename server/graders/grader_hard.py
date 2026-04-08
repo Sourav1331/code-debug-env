@@ -14,7 +14,7 @@ def _score_explanation(explanation: Optional[str], keywords: List[str], instruct
     - Partial credit for any relevant mention
     """
     if not explanation or len(explanation.strip()) < 15:
-        return 0.0, "❌ No explanation provided. Hard tasks require explanation field."
+        return 0.01, "❌ No explanation provided. Hard tasks require explanation field."
 
     exp_lower = explanation.lower()
     hits = [kw for kw in keywords if kw.lower() in exp_lower]
@@ -44,11 +44,11 @@ def _score_explanation(explanation: Optional[str], keywords: List[str], instruct
     needed = max(1, len(keywords) // 2)
 
     if total_hits == 0:
-        score = 0.1 if len(explanation.strip()) > 50 else 0.0  # minimal credit for any long attempt
+        score = 0.1 if len(explanation.strip()) > 50 else 0.01
     elif total_hits >= needed:
-        score = 1.0
+        score = 0.99
     else:
-        score = round(total_hits / needed, 2)
+        score = total_hits / needed
 
     if score >= 1.0:
         feedback = f"✅ Explanation excellent! Covered: {', '.join(synonym_hits)}"
@@ -61,6 +61,7 @@ def _score_explanation(explanation: Optional[str], keywords: List[str], instruct
     else:
         feedback = f"❌ Explanation too vague. Explain: {', '.join(keywords[:3])}"
 
+    score = max(0.01, min(score, 0.99))
     return round(score, 2), feedback
 
 
@@ -72,7 +73,8 @@ def grade_hard(fixed_code: str, task: dict, explanation: Optional[str] = None) -
     keywords = task.get("explanation_keywords", [])
     instructions = task.get("instructions", "")
     exp_score, exp_feedback = _score_explanation(explanation, keywords, instructions)
-    final_reward = round(0.7 * test_reward + 0.3 * exp_score, 2)
+    final_reward = 0.7 * test_reward + 0.3 * exp_score
+    final_reward = round(max(0.01, min(final_reward, 0.99)), 2)
 
     feedback = (
         f"--- Code Score (70%): {test_reward:.2f} ---\n"
