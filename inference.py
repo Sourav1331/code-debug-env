@@ -11,7 +11,7 @@ Usage:
 STDOUT FORMAT (strictly required by evaluator):
   [START] task=<id> env=<benchmark> model=<model>
   [STEP] step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
-  [END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
+  [END] success=<true|false> steps=<n> score=<0.000> rewards=<r1,r2,...,rn>
 """
 
 import os, sys, json, time, argparse, requests, re
@@ -25,26 +25,30 @@ HF_TOKEN     = os.environ.get("HF_TOKEN",     "")
 ENV_URL      = os.environ.get("ENV_URL",      "http://localhost:7860")
 BENCHMARK    = "code-debug-env"
 MAX_STEPS    = 5
+SUCCESS_SCORE_THRESHOLD = 0.5
 
 client = OpenAI(api_key=HF_TOKEN or "dummy", base_url=API_BASE_URL)
 
 # ── Logging — STRICT FORMAT ───────────────────────────────────────────────────
-def log_start(task_id, env, model):
+def log_start(task_id: str, env: str, model: str) -> None:
     print(f"[START] task={task_id} env={env} model={model}", flush=True)
 
-def log_step(step, action, reward, done, error):
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error or 'null'}", flush=True)
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val  = str(done).lower()
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
-def log_end(success, steps, rewards):
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={','.join(f'{r:.2f}' for r in rewards)}", flush=True)
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 # ── Env client ────────────────────────────────────────────────────────────────
-def env_reset(url, difficulty):
+def env_reset(url: str, difficulty: str) -> dict:
     r = requests.post(f"{url}/reset", json={"difficulty": difficulty}, timeout=30)
     r.raise_for_status()
     return r.json()
 
-def env_step(url, fixed_code, explanation=None):
+def env_step(url: str, fixed_code: str, explanation: Optional[str] = None) -> dict:
     payload = {"fixed_code": fixed_code}
     if explanation:
         payload["explanation"] = explanation
@@ -90,25 +94,27 @@ def _parse_llm_response(raw: str, buggy_code: str) -> dict:
 
     # Find JSON boundaries
     start = raw.find("{")
-    end = raw.rfind("}") + 1
+    end   = raw.rfind("}") + 1
     if start >= 0 and end > start:
         raw = raw[start:end]
 
     # Try direct parse
     try:
         parsed = json.loads(raw)
-        return {"fixed_code": parsed.get("fixed_code", ""), "explanation": parsed.get("explanation")}
+        return {
+            "fixed_code": parsed.get("fixed_code", ""),
+            "explanation": parsed.get("explanation"),
+        }
     except json.JSONDecodeError:
         pass
 
-    # Fix control characters (literal newlines inside JSON strings)
+    # Fix literal control characters inside JSON strings
     try:
-        fixed = re.sub(r'(?<!\\)\n', r'\\n', raw)
-        fixed = re.sub(r'(?<!\\)\t', r'\\t', raw)
-        fixed = re.sub(r'(?<!\\)\r', r'\\r', raw)
+        fixed  = re.sub(r'(?<!\\)\n', r'\\n', raw)
+        fixed  = re.sub(r'(?<!\\)\t', r'\\t', fixed)
+        fixed  = re.sub(r'(?<!\\)\r', r'\\r', fixed)
         parsed = json.loads(fixed)
-        # Unescape the fixed_code back to real newlines
-        code = parsed.get("fixed_code", "")
+        code   = parsed.get("fixed_code", "")
         if "\\n" in code:
             code = code.replace("\\n", "\n").replace("\\t", "\t")
         return {"fixed_code": code, "explanation": parsed.get("explanation")}
@@ -116,28 +122,42 @@ def _parse_llm_response(raw: str, buggy_code: str) -> dict:
         pass
 
     # Last resort: regex extraction
-    code_match = re.search(r'"fixed_code"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[,}]', raw, re.DOTALL)
-    exp_match  = re.search(r'"explanation"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[,}]', raw, re.DOTALL)
+    code_match = re.search(r'"fixed_code"\s*:\s*"((?:[^"\\]|\\.)*)"', raw, re.DOTALL)
+    exp_match  = re.search(r'"explanation"\s*:\s*"((?:[^"\\]|\\.)*)"', raw, re.DOTALL)
 
     if code_match:
         code = code_match.group(1).replace("\\n", "\n").replace("\\t", "\t")
-        exp = exp_match.group(1).replace("\\n", "\n") if exp_match else None
+        exp  = exp_match.group(1).replace("\\n", "\n") if exp_match else None
         return {"fixed_code": code, "explanation": exp}
 
-    # Complete fallback
+    # Complete fallback — return buggy code unchanged
     return {"fixed_code": buggy_code, "explanation": None}
 
 
-def call_llm(buggy_code, instructions, difficulty, feedback=None, attempt=1, prev_code=None):
-    content = f"Difficulty: {difficulty}\nInstructions: {instructions}\n\nBuggy code:\n```python\n{buggy_code}\n```\n"
+def call_llm(
+    buggy_code: str,
+    instructions: str,
+    difficulty: str,
+    feedback: Optional[str] = None,
+    attempt: int = 1,
+    prev_code: Optional[str] = None,
+) -> dict:
+    content = (
+        f"Difficulty: {difficulty}\n"
+        f"Instructions: {instructions}\n\n"
+        f"Buggy code:\n```python\n{buggy_code}\n```\n"
+    )
 
     if feedback and attempt > 1:
-        content += f"\nPREVIOUS FIX FAILED. Feedback:\n{feedback}\n\nYour previous code:\n```python\n{prev_code or ''}\n```\n"
-        content += "ANALYZE THE FEEDBACK CAREFULLY:\n"
-        content += "- Look at Input/Expected/Got for each failing test\n"
-        content += "- If Got shows wrong rotation direction: use lst[-k:] + lst[:-k] for RIGHT rotate\n"
-        content += "- If TimeoutError: add visited=set([start]) before queue in graph code\n"
-        content += "- Try a COMPLETELY DIFFERENT fix.\n"
+        content += (
+            f"\nPREVIOUS FIX FAILED. Feedback:\n{feedback}\n\n"
+            f"Your previous code:\n```python\n{prev_code or ''}\n```\n"
+            "ANALYZE THE FEEDBACK CAREFULLY:\n"
+            "- Look at Input/Expected/Got for each failing test\n"
+            "- If Got shows wrong rotation direction: use lst[-k:] + lst[:-k] for RIGHT rotate\n"
+            "- If TimeoutError: add visited=set([start]) before queue in graph code\n"
+            "- Try a COMPLETELY DIFFERENT fix.\n"
+        )
 
     if difficulty == "hard":
         hint_match = re.search(r'[Mm]ention[:\s]+([^.]+?)(?:\.|$)', instructions)
@@ -151,7 +171,7 @@ def call_llm(buggy_code, instructions, difficulty, feedback=None, attempt=1, pre
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": content}
+                {"role": "user",   "content": content},
             ],
             max_tokens=1500,
             temperature=0.1 if attempt == 1 else 0.4,
@@ -164,23 +184,27 @@ def call_llm(buggy_code, instructions, difficulty, feedback=None, attempt=1, pre
 
 
 # ── Episode ───────────────────────────────────────────────────────────────────
-def run_episode(env_url, difficulty):
-    data = env_reset(env_url, difficulty)
-    obs  = data["observation"]
+def run_episode(env_url: str, difficulty: str) -> tuple:
+    """Run one full episode. Returns (success, steps_taken, rewards)."""
+    data         = env_reset(env_url, difficulty)
+    obs          = data["observation"]
     task_id      = obs["task_id"]
     buggy_code   = obs["buggy_code"]
     instructions = obs["instructions"]
 
     log_start(task_id, BENCHMARK, MODEL_NAME)
 
-    rewards, steps_taken, success = [], 0, False
-    last_feedback, last_code = None, None
+    rewards: List[float] = []
+    steps_taken          = 0
+    success              = False
+    last_feedback        = None
+    last_code            = None
 
     for attempt in range(1, MAX_STEPS + 1):
         steps_taken = attempt
-        action = call_llm(buggy_code, instructions, difficulty, last_feedback, attempt, last_code)
-        code = action["fixed_code"]
-        last_code = code
+        action      = call_llm(buggy_code, instructions, difficulty, last_feedback, attempt, last_code)
+        code        = action["fixed_code"]
+        last_code   = code
 
         if not code or not code.strip():
             log_step(attempt, "empty_submission", 0.0, False, "empty_code")
@@ -194,9 +218,9 @@ def run_episode(env_url, difficulty):
             rewards.append(0.0)
             continue
 
-        reward = result.get("reward", 0.0)
-        done   = result.get("done", False)
-        obs_r  = result.get("observation", {})
+        reward        = result.get("reward", 0.0)
+        done          = result.get("done", False)
+        obs_r         = result.get("observation", {})
         last_feedback = obs_r.get("feedback", "")
 
         log_step(attempt, f"fix_{difficulty}_attempt{attempt}", reward, done, None)
@@ -207,27 +231,35 @@ def run_episode(env_url, difficulty):
         if done:
             break
 
-    log_end(success, steps_taken, rewards)
+    # Compute normalised score for this episode (best reward achieved)
+    score = max(rewards) if rewards else 0.0
+    score = min(max(score, 0.0), 1.0)
+    success = success or (score >= SUCCESS_SCORE_THRESHOLD)
+
+    log_end(success, steps_taken, score, rewards)
     return success, steps_taken, rewards
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Code Debug Environment Baseline Agent")
-    parser.add_argument("--url", default=ENV_URL)
-    parser.add_argument("--difficulty", default=None, choices=["easy","medium","hard","all"])
+    parser.add_argument("--url",        default=ENV_URL)
+    parser.add_argument("--difficulty", default=None, choices=["easy", "medium", "hard", "all"])
     args = parser.parse_args()
-    url = args.url.rstrip("/")
+    url  = args.url.rstrip("/")
 
+    # Health check
     try:
         requests.get(f"{url}/health", timeout=10).raise_for_status()
-        print(f"# Environment healthy at {url}", flush=True)
+        print(f"# Environment healthy at {url}", file=sys.stderr, flush=True)
     except Exception as e:
         print(f"# Health check failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    diffs = ["easy","medium","hard"] if args.difficulty in (None,"all") else [args.difficulty]
-    all_rewards, successes = [], []
+    diffs = ["easy", "medium", "hard"] if args.difficulty in (None, "all") else [args.difficulty]
+
+    all_rewards: List[float] = []
+    successes:   List[bool]  = []
 
     for d in diffs:
         ok, _, rewards = run_episode(url, d)
@@ -235,8 +267,12 @@ def main():
         successes.append(ok)
         time.sleep(0.5)
 
-    avg = round(sum(all_rewards)/len(all_rewards), 3) if all_rewards else 0.0
-    print(f"# SUMMARY: {sum(successes)}/{len(diffs)} tasks solved | avg_reward={avg}", flush=True)
+    avg = round(sum(all_rewards) / len(all_rewards), 3) if all_rewards else 0.0
+    print(
+        f"# SUMMARY: {sum(successes)}/{len(diffs)} tasks solved | avg_reward={avg}",
+        file=sys.stderr, flush=True,
+    )
+
 
 if __name__ == "__main__":
     main()
