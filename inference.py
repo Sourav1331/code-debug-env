@@ -2,75 +2,86 @@
 """
 inference.py - Code Debug Environment Baseline Agent
 
-Required env vars: API_BASE_URL, MODEL_NAME, and one of API_KEY/GROQ_API_KEY/OPENAI_API_KEY/HF_TOKEN
+Required env vars: API_BASE_URL, MODEL_NAME, HF_TOKEN
 Usage:
   python inference.py
   python inference.py --url https://Souravdanyal-code-debug-env.hf.space
   python inference.py --difficulty easy
 
-STDOUT FORMAT (strictly required by evaluator - JSON):
-  {"type": "START", "task": "<id>", "env": "<benchmark>", "model": "<model>"}
-  {"type": "STEP", "step": <n>, "action": "<str>", "reward": <0.00>, "done": <bool>, "error": <msg|null>}
-  {"type": "END", "success": <bool>, "steps": <n>, "score": <0.000>, "rewards": [<r1>, <r2>, ...]}
+STDOUT FORMAT (strictly required by evaluator - plaintext):
+  [START] task=<id> env=<benchmark> model=<model>
+  [STEP] step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
+  [END] success=<true|false> steps=<n> score=<0.000> rewards=[<r1>,<r2>,...]
 """
 
 import os, sys, json, time, argparse, requests, re
 from openai import OpenAI
 from typing import List, Optional
 
+# Load .env file if it exists
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, will use system env vars
 
-def _read_env(*names: str) -> tuple[str, Optional[str]]:
-    """Return first non-empty env value and the matched variable name."""
-    for name in names:
-        for candidate in (name, name.lower()):
-            val = os.environ.get(candidate)
-            if val and val.strip():
-                return val.strip(), candidate
-    return "", None
 
 # ── Config ────────────────────────────────────────────────────────────────────
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1")
-MODEL_NAME   = os.environ.get("MODEL_NAME",   "llama-3.1-8b-instant")
-
-# Accept common provider key names, including lowercase variants.
-API_KEY, API_KEY_SOURCE = _read_env("API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "HF_TOKEN")
-ENV_URL      = os.environ.get("ENV_URL",      "http://localhost:7860")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-8b-instant")
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_TOKEN_SOURCE = "HF_TOKEN"
+if not HF_TOKEN:
+    HF_TOKEN = os.getenv("hf_token")
+    HF_TOKEN_SOURCE = "hf_token"
+# Optional when using from_docker_image():
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+ENV_URL = os.getenv("ENV_URL")
 BENCHMARK    = "code-debug-env"
 MAX_STEPS    = 5
 SUCCESS_SCORE_THRESHOLD = 0.5
 
-client = OpenAI(api_key=API_KEY or "dummy", base_url=API_BASE_URL)
+client = OpenAI(api_key=HF_TOKEN or "dummy", base_url=API_BASE_URL)
 
-# ── Logging — STRICT JSON FORMAT ─────────────────────────────────────────────
+# ── Logging — STRICT PLAINTEXT FORMAT ────────────────────────────────────────
+def _format_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _normalize_token(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def _format_error(error: Optional[str]) -> str:
+    if error is None:
+        return "null"
+    cleaned = _normalize_token(error)
+    return cleaned if cleaned else "null"
+
+
+def _format_rewards(rewards: List[float]) -> str:
+    return "[" + ",".join(f"{round(r, 2):.2f}" for r in rewards) + "]"
+
+
 def log_start(task_id: str, env: str, model: str) -> None:
-    log_entry = {
-        "type": "START",
-        "task": task_id,
-        "env": env,
-        "model": model
-    }
-    print(json.dumps(log_entry), flush=True)
+    print(
+        f"[START] task={_normalize_token(task_id)} env={_normalize_token(env)} model={_normalize_token(model)}",
+        flush=True,
+    )
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    log_entry = {
-        "type": "STEP",
-        "step": step,
-        "action": action,
-        "reward": round(reward, 2),
-        "done": done,
-        "error": error
-    }
-    print(json.dumps(log_entry), flush=True)
+    print(
+        f"[STEP] step={step} action={_normalize_token(action)} reward={round(reward, 2):.2f} "
+        f"done={_format_bool(done)} error={_format_error(error)}",
+        flush=True,
+    )
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    log_entry = {
-        "type": "END",
-        "success": success,
-        "steps": steps,
-        "score": round(score, 3),
-        "rewards": [round(r, 2) for r in rewards]
-    }
-    print(json.dumps(log_entry), flush=True)
+    print(
+        f"[END] success={_format_bool(success)} steps={steps} score={round(score, 3):.3f} "
+        f"rewards={_format_rewards(rewards)}",
+        flush=True,
+    )
 
 # ── Env client ────────────────────────────────────────────────────────────────
 def env_reset(url: str, difficulty: str) -> dict:
@@ -273,19 +284,19 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Code Debug Environment Baseline Agent")
-    parser.add_argument("--url",        default=ENV_URL)
+    parser.add_argument("--url", default=ENV_URL or "http://localhost:7860")
     parser.add_argument("--difficulty", default=None, choices=["easy", "medium", "hard", "all"])
     args = parser.parse_args()
     url  = args.url.rstrip("/")
 
-    if not API_KEY:
+    if not HF_TOKEN:
         print(
-            "# Missing API key. Set one of: API_KEY, GROQ_API_KEY, OPENAI_API_KEY, HF_TOKEN (or lowercase variants)",
+            "# Missing HF_TOKEN (or lowercase hf_token).",
             file=sys.stderr,
             flush=True,
         )
         sys.exit(1)
-    print(f"# Using API key from {API_KEY_SOURCE}", file=sys.stderr, flush=True)
+    print(f"# Using API key from {HF_TOKEN_SOURCE}", file=sys.stderr, flush=True)
 
     # Health check
     try:
@@ -315,3 +326,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -153,13 +153,15 @@ def run_checks(base_url: str):
     try:
         with open("inference.py") as f:
             content = f.read()
-        has_start = '"type": "START"' in content
-        has_step = '"type": "STEP"' in content
-        has_end = '"type": "END"' in content
+        has_start = "[START] task=" in content
+        has_step = "[STEP] step=" in content
+        has_end = "[END] success=" in content
+        avoids_json_logs = "print(json.dumps(log_entry)" not in content
         check("inference.py emits [START] logs", has_start)
         check("inference.py emits [STEP] logs", has_step)
         check("inference.py emits [END] logs", has_end)
-        all_passed &= has_start and has_step and has_end
+        check("inference.py avoids JSON log dict dumps", avoids_json_logs)
+        all_passed &= has_start and has_step and has_end and avoids_json_logs
     except Exception as e:
         check("inference.py log format", False, str(e))
         all_passed = False
