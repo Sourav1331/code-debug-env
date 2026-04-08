@@ -28,7 +28,8 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-8b-instant")
+MODEL_NAME   = os.getenv("MODEL_NAME", "llama-3.1-8b-instant")
+
 HF_TOKEN = os.getenv("HF_TOKEN")
 HF_TOKEN_SOURCE = "HF_TOKEN"
 if not HF_TOKEN:
@@ -37,16 +38,18 @@ if not HF_TOKEN:
 if not HF_TOKEN:
     HF_TOKEN = os.getenv("hf_token")
     HF_TOKEN_SOURCE = "hf_token"
-# Optional when using from_docker_image():
+
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
-ENV_URL = os.getenv("ENV_URL")
-BENCHMARK    = "code-debug-env"
-MAX_STEPS    = 5
+ENV_URL          = os.getenv("ENV_URL")
+BENCHMARK        = "code-debug-env"
+MAX_STEPS        = 5
 SUCCESS_SCORE_THRESHOLD = 0.5
 
 client = OpenAI(api_key=HF_TOKEN or "dummy", base_url=API_BASE_URL)
 
+
 # ── Logging — STRICT PLAINTEXT FORMAT ────────────────────────────────────────
+
 def _format_bool(value: bool) -> str:
     return "true" if value else "false"
 
@@ -72,12 +75,14 @@ def log_start(task_id: str, env: str, model: str) -> None:
         flush=True,
     )
 
+
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     print(
         f"[STEP] step={step} action={_normalize_token(action)} reward={round(reward, 2):.2f} "
         f"done={_format_bool(done)} error={_format_error(error)}",
         flush=True,
     )
+
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     print(
@@ -86,11 +91,14 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
         flush=True,
     )
 
+
 # ── Env client ────────────────────────────────────────────────────────────────
+
 def env_reset(url: str, difficulty: str) -> dict:
     r = requests.post(f"{url}/reset", json={"difficulty": difficulty}, timeout=30)
     r.raise_for_status()
     return r.json()
+
 
 def env_step(url: str, fixed_code: str, explanation: Optional[str] = None) -> dict:
     payload = {"fixed_code": fixed_code}
@@ -100,7 +108,9 @@ def env_step(url: str, fixed_code: str, explanation: Optional[str] = None) -> di
     r.raise_for_status()
     return r.json()
 
+
 # ── LLM ──────────────────────────────────────────────────────────────────────
+
 SYSTEM_PROMPT = """You are an expert Python debugging agent.
 
 RESPONSE FORMAT — JSON only, no markdown fences, no extra text:
@@ -120,9 +130,10 @@ COMMON BUG PATTERNS — memorize these:
 - Wrong operator: target-n not target+n for complement
 - Off-by-one: lst[1] for second element not lst[2]
 
-IMPORTANT: If feedback shows TimeoutError → you have infinite loop → add visited set.
-IMPORTANT: If Expected shows right-rotated list → use lst[-k:] + lst[:-k].
+IMPORTANT: If feedback shows TimeoutError, you have infinite loop. Add visited set.
+IMPORTANT: If Expected shows right-rotated list, use lst[-k:] + lst[:-k].
 """
+
 
 def _parse_llm_response(raw: str, buggy_code: str) -> dict:
     """Robustly parse LLM response handling control chars and malformed JSON."""
@@ -174,7 +185,7 @@ def _parse_llm_response(raw: str, buggy_code: str) -> dict:
         exp  = exp_match.group(1).replace("\\n", "\n") if exp_match else None
         return {"fixed_code": code, "explanation": exp}
 
-    # Complete fallback — return buggy code unchanged
+    # Complete fallback
     return {"fixed_code": buggy_code, "explanation": None}
 
 
@@ -228,6 +239,7 @@ def call_llm(
 
 
 # ── Episode ───────────────────────────────────────────────────────────────────
+
 def run_episode(env_url: str, difficulty: str) -> tuple:
     """Run one full episode. Returns (success, steps_taken, rewards)."""
     data         = env_reset(env_url, difficulty)
@@ -251,19 +263,18 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
             code        = action.get("fixed_code") or ""
             last_code   = code
 
-            reward = 0.0
-            done = False
+            reward: float         = 0.0
+            done: bool            = False
             step_error: Optional[str] = None
+
             try:
                 result = env_step(env_url, code, action.get("explanation"))
                 reward = result.get("reward", 0.0)
-                done = result.get("done", False)
-                obs_r = result.get("observation", {})
+                done   = result.get("done", False)
+                obs_r  = result.get("observation", {})
                 if isinstance(obs_r, dict):
                     last_feedback = obs_r.get("feedback", "")
-                    step_error = obs_r.get("last_action_error")
-                    if step_error is None:
-                        step_error = obs_r.get("error")
+                    step_error    = obs_r.get("last_action_error") or obs_r.get("error")
             except Exception as e:
                 step_error = str(e)
 
@@ -274,10 +285,10 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
                 success = True
             if done:
                 break
+
     finally:
-        # Compute normalized score for this episode and always emit [END].
-        score = max(rewards) if rewards else 0.0
-        score = min(max(score, 0.0), 1.0)
+        score   = max(rewards) if rewards else 0.0
+        score   = min(max(score, 0.0), 1.0)
         success = success or (score >= SUCCESS_SCORE_THRESHOLD)
         log_end(success, steps_taken, score, rewards)
 
@@ -285,18 +296,21 @@ def run_episode(env_url: str, difficulty: str) -> tuple:
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 def main():
     parser = argparse.ArgumentParser(description="Code Debug Environment Baseline Agent")
     parser.add_argument("--url", default=ENV_URL or "http://localhost:7860")
-    parser.add_argument("--difficulty", default=None, choices=["easy", "medium", "hard", "all"])
+    parser.add_argument(
+        "--difficulty", default=None,
+        choices=["easy", "medium", "hard", "all"],
+    )
     args = parser.parse_args()
     url  = args.url.rstrip("/")
 
     if not HF_TOKEN:
         print(
             "# Missing API key. Set HF_TOKEN (or API_KEY / lowercase hf_token).",
-            file=sys.stderr,
-            flush=True,
+            file=sys.stderr, flush=True,
         )
         sys.exit(1)
     print(f"# Using API key from {HF_TOKEN_SOURCE}", file=sys.stderr, flush=True)
@@ -329,4 +343,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
