@@ -27,3 +27,6 @@ serve = "server.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[project.scripts]
+serve = "server.app:main"
