@@ -109,6 +109,9 @@ async def list_tasks() -> dict:
     }
 
 
-if __name__ == "__main__":
+def main():
     import uvicorn
-    uvicorn.run("server.app:app", host="127.0.0.1", port=7860, reload=True)
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)
+
+if __name__ == "__main__":
+    main()
