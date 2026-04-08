@@ -8,10 +8,10 @@ Usage:
   python inference.py --url https://Souravdanyal-code-debug-env.hf.space
   python inference.py --difficulty easy
 
-STDOUT FORMAT (strictly required by evaluator):
-  [START] task=<id> env=<benchmark> model=<model>
-  [STEP] step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
-  [END] success=<true|false> steps=<n> score=<0.000> rewards=<r1,r2,...,rn>
+STDOUT FORMAT (strictly required by evaluator - JSON):
+  {"type": "START", "task": "<id>", "env": "<benchmark>", "model": "<model>"}
+  {"type": "STEP", "step": <n>, "action": "<str>", "reward": <0.00>, "done": <bool>, "error": <msg|null>}
+  {"type": "END", "success": <bool>, "steps": <n>, "score": <0.000>, "rewards": [<r1>, <r2>, ...]}
 """
 
 import os, sys, json, time, argparse, requests, re
@@ -41,18 +41,36 @@ SUCCESS_SCORE_THRESHOLD = 0.5
 
 client = OpenAI(api_key=API_KEY or "dummy", base_url=API_BASE_URL)
 
-# ── Logging — STRICT FORMAT ───────────────────────────────────────────────────
+# ── Logging — STRICT JSON FORMAT ─────────────────────────────────────────────
 def log_start(task_id: str, env: str, model: str) -> None:
-    print(f"[START] task={task_id} env={env} model={model}", flush=True)
+    log_entry = {
+        "type": "START",
+        "task": task_id,
+        "env": env,
+        "model": model
+    }
+    print(json.dumps(log_entry), flush=True)
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    error_val = error if error else "null"
-    done_val  = str(done).lower()
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+    log_entry = {
+        "type": "STEP",
+        "step": step,
+        "action": action,
+        "reward": round(reward, 2),
+        "done": done,
+        "error": error
+    }
+    print(json.dumps(log_entry), flush=True)
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    log_entry = {
+        "type": "END",
+        "success": success,
+        "steps": steps,
+        "score": round(score, 3),
+        "rewards": [round(r, 2) for r in rewards]
+    }
+    print(json.dumps(log_entry), flush=True)
 
 # ── Env client ────────────────────────────────────────────────────────────────
 def env_reset(url: str, difficulty: str) -> dict:
