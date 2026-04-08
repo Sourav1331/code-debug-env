@@ -27,5 +27,6 @@ dev = [
 where = ["."]
 
 [project.scripts]
+server = "app:main"
 app = "app:main"
 run = "run:main"
